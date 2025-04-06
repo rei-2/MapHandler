@@ -18,7 +18,7 @@ local BotSpawnDefault = true;
 local AllowGiveWeapon = false;
 
 if (AllowGiveWeapon)
-    IncludeScript("give_tf_weapon/_master.nut"); // https://github.com/envyniv/give_tf_weapon
+    IncludeScript("give_tf_weapon/_master.nut"); // https://tf2maps.net/downloads/vscript-give_tf_weapon.14897/
 
 local function min(...)
 {
