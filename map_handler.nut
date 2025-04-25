@@ -2113,8 +2113,12 @@ function OnTimer()
                 }
                 if (!foundRoot)
                     permission = GIVEN_PERMISSION;
-                else if (uID in Players)
-                    permission = Players[uID];
+                else
+                {
+                    local uID = NetProps.GetPropString(player, "m_szNetworkIDString");
+                    if (uID in Players)
+                        permission = Players[uID];
+                }
             }
             if (CmdVars.regen_permission.Requirement > permission)
                 continue;
