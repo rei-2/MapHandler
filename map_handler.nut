@@ -14,8 +14,8 @@ local EVENT = "\x07ffff80";
 local PERMISSION = "\x07800000";
 local ERROR = "\x07ff0000";
 
-local BotSpawnDefault = true;
-local AllowGiveWeapon = false;
+local BotSpawnDefault = false;
+local AllowGiveWeapon = true;
 
 if (AllowGiveWeapon)
     IncludeScript("give_tf_weapon/_master.nut"); // https://tf2maps.net/downloads/vscript-give_tf_weapon.14897/
@@ -346,7 +346,7 @@ function GetPlayers(speaker, text)
                     }
                     caseFound = true
                 }
-                catch(err) {}
+                catch (err) {}
             }
             if (plrStr == str && !caseFound)
             {
@@ -801,11 +801,88 @@ AddCommand({
 AddCommand({
     "Command": [ "teleport", "tp" ],
     "Arguments": [ { "from": "me" }, { "to": "me" }, { "offset": "false" } ],
-    "Description": [ "Teleports players to another player", "from: '<player>'", "to: '<player>', '__cursor' - your cursor, 'vector(x, y, z)' - some position" ],
+    "Description": [ "Teleports players to another player", "from: '<player>'", "to: '<player>', '__cursor' / '__bounds' / '__plane' / '__point' - your aim position, with varying bounds (__plane and __point may get stuck), 'vector(x, y, z)' - some position" ],
     "Function": function(speaker, args, vars = null)
     {
-        if (args[1] != "__cursor")
+        local pos = Vector(), offset = Vector();
+
+        switch (args[1])
         {
+        case "__cursor":
+            local start = speaker.EyePosition();
+            local dir = speaker.EyeAngles().Forward();
+            local end = start + dir * 32768;
+
+            local mins = Vector(-24, -24, 0), maxs = Vector(24, 24, 82);
+
+            local trace = {
+                "start": start,
+                "end": end,
+                "ignore": speaker,
+                "hullmin": mins,
+                "hullmax": maxs,
+                "mask": (0x1 | 0x4000 | 0x10000 | 0x2 | 0x2000000 | 0x8) //MASK_PLAYERSOLID
+            };
+            if (!TraceHull(trace)) throw("Trace error. ");
+
+            pos = trace.pos;
+            break;
+        case "__bounds":
+            local diff = Vector(0, 0, speaker.EyePosition().z - speaker.GetOrigin().z);
+
+            local start = speaker.EyePosition();
+            local dir = speaker.EyeAngles().Forward();
+            local end = start + dir * 32768;
+
+            local mins = Vector(-24, -24, 0) - diff, maxs = Vector(24, 24, 82) - diff;
+
+            local trace = {
+                "start": start,
+                "end": end,
+                "ignore": speaker,
+                "hullmin": mins,
+                "hullmax": maxs,
+                "mask": (0x1 | 0x4000 | 0x10000 | 0x2 | 0x2000000 | 0x8) //MASK_PLAYERSOLID
+            };
+            if (!TraceHull(trace)) throw("Trace error. ");
+
+            pos = trace.pos - diff;
+            break;
+        case "__plane":
+            local start = speaker.EyePosition();
+            local dir = speaker.EyeAngles().Forward();
+            local end = start + dir * 32768;
+
+            local mins = Vector(-24, -24, 0), maxs = Vector(24, 24, 0);
+
+            local trace = {
+                "start": start,
+                "end": end,
+                "ignore": speaker,
+                "hullmin": mins,
+                "hullmax": maxs,
+                "mask": (0x1 | 0x4000 | 0x10000 | 0x2 | 0x2000000 | 0x8) //MASK_PLAYERSOLID
+            };
+            if (!TraceHull(trace)) throw("Trace error. ");
+
+            pos = trace.pos;
+            break;
+        case "__point":
+            local start = speaker.EyePosition();
+            local dir = speaker.EyeAngles().Forward();
+            local end = start + dir * 32768;
+
+            local trace = {
+                "start": start,
+                "end": end,
+                "ignore": speaker,
+                "mask": (0x1 | 0x4000 | 0x10000 | 0x2 | 0x2000000 | 0x8) //MASK_PLAYERSOLID
+            };
+            if (!TraceLineEx(trace)) throw("Trace error. ");
+
+            pos = trace.pos;
+            break;
+        default:
             try
             {
                 local text = replace(args[1] + (args[2] != "false" ? args[2] : ""), " ", "");
@@ -817,49 +894,22 @@ AddCommand({
                 if (vector.len() != 3)
                     throw("");
 
-                local value = Vector(vector[0].tofloat(), vector[1].tofloat(), vector[2].tofloat());
-                foreach (player in GetPlayers(speaker, args[0]))
-                    player.SetAbsOrigin(value);
+                pos = Vector(vector[0].tofloat(), vector[1].tofloat(), vector[2].tofloat());
             }
-            catch(err)
+            catch (err)
             {
-                local offset = Vector();
-                foreach (player in GetPlayers(speaker, args[0]))
-                {
-                    if (args[2].tolower() == "t" || args[2].tolower() == "true")
-                        offset += Vector(0, 0, 83);
-                    player.SetAbsOrigin(GetPlayers(speaker, args[1])[0].GetOrigin() + offset);
-                }
+                local player = GetPlayers(speaker, args[1])[0];
+                pos = player.GetOrigin();
+                if (args[2].tolower() == "t" || args[2].tolower() == "true")
+                    offset += Vector(0, 0, player.GetBoundingMaxs().z + 1);
             }
         }
-        else
+
+        foreach (player in GetPlayers(speaker, args[0]))
         {
-            local diff = Vector(0, 0, speaker.EyePosition().z - speaker.GetOrigin().z);
-
-            local start = speaker.EyePosition();
-            local dir = speaker.EyeAngles().Forward();
-            local end = start + dir * 32768;
-
-            local mins = Vector(-24, -24, 0) - diff/*speaker.GetBoundingMins()*/, maxs = Vector(24, 24, 82) - diff/*speaker.GetBoundingMaxs()*/;
-
-            local trace = {
-                "start": start,
-                "end": end,
-                "ignore": speaker,
-                "hullmin": mins,
-                "hullmax": maxs,
-                "mask": (0x1 | 0x4000 | 0x10000 | 0x2 | 0x2000000 | 0x8) //MASK_PLAYERSOLID
-            };
-            if (!TraceHull(trace)) throw("TraceHull error. ");
-
-            //local _dir = (end - start); _dir.Norm(); // if getting stuck becomes an issue, seems fine
-            local offset = Vector();
-            foreach (player in GetPlayers(speaker, args[0]))
-            {
-                if (args[2].tolower() == "t" || args[2].tolower() == "true")
-                    offset += Vector(0, 0, 83);
-                player.SetAbsOrigin(trace.pos - diff + offset/* - _dir*/);
-            }
+            player.SetAbsOrigin(pos + offset);
+            if (args[2].tolower() == "t" || args[2].tolower() == "true")
+                offset += Vector(0, 0, player.GetBoundingMaxs().z + 1);
         }
     }
 });
@@ -1019,10 +1069,11 @@ AddCommand({
             local newTeam = 0;
             if (args[1] == "__swap")
             {
-                if (player.GetTeam() == 2)
-                    newTeam = 3;
-                else
-                    newTeam = 2;
+                switch (player.GetTeam())
+                {
+                case 2: newTeam = 3; break;
+                case 3: newTeam = 2; break;
+                }
             }
             else if (args[1].tolower() == "blu" || args[1].tolower() == "blue")
                 newTeam = 3;
@@ -1058,20 +1109,20 @@ AddCommand({
             {
                 classId = args[1].tointeger();
             }
-            catch(err) {}
+            catch (err) {}
             switch (args[1].tolower())
             {
-                case "scout": classId = 1; break;
-                case "soldier": classId = 3; break;
-                case "pyro": classId = 7; break;
-                case "demo":
-                case "demoman": classId = 4; break;
-                case "heavy": classId = 6; break;
-                case "engi":
-                case "engineer": classId = 9; break;
-                case "medic": classId = 5; break;
-                case "sniper": classId = 2; break;
-                case "spy": classId = 8; break;
+            case "scout": classId = 1; break;
+            case "soldier": classId = 3; break;
+            case "pyro": classId = 7; break;
+            case "demo":
+            case "demoman": classId = 4; break;
+            case "heavy": classId = 6; break;
+            case "engi":
+            case "engineer": classId = 9; break;
+            case "medic": classId = 5; break;
+            case "sniper": classId = 2; break;
+            case "spy": classId = 8; break;
             }
             if (!classId)
                 classId = RandomInt(1, 9);
@@ -1081,19 +1132,19 @@ AddCommand({
 
             switch (args[2].tolower())
             {
-                case "respawn":
-                    player.ForceRespawn();
-                    break;
-                case "refresh":
-                    local origin = player.GetOrigin();
-                    local velocity = player.GetVelocity();
-                    local angles = player.EyeAngles();
-                    local moveType = player.GetMoveType();
-                    player.ForceRespawn();
-                    player.SetAbsOrigin(origin);
-                    player.SetVelocity(velocity);
-                    player.SnapEyeAngles(angles);
-                    player.SetMoveType(moveType, 0);
+            case "respawn":
+                player.ForceRespawn();
+                break;
+            case "refresh":
+                local origin = player.GetOrigin();
+                local velocity = player.GetVelocity();
+                local angles = player.EyeAngles();
+                local moveType = player.GetMoveType();
+                player.ForceRespawn();
+                player.SetAbsOrigin(origin);
+                player.SetVelocity(velocity);
+                player.SnapEyeAngles(angles);
+                player.SetMoveType(moveType, 0);
             }
         }
     }
@@ -1609,7 +1660,7 @@ function OnScriptHook_OnTakeDamage(data)
                 }
             }
         }
-        catch(err) {}
+        catch (err) {}
     }
 }
 AddCommand({
@@ -1764,21 +1815,21 @@ AddCommand({
         {
             classId = args[0].tointeger();
         }
-        catch(err) {}
+        catch (err) {}
         switch (args[0].tolower())
         {
-            case "scout": classId = 1; break;
-            case "soldier": classId = 3; break;
-            case "pyro": classId = 7; break;
-            case "demo":
-            case "demoman": classId = 4; break;
-            case "heavy": classId = 6; break;
-            case "engi":
-            case "engineer": classId = 9; break;
-            case "medic": classId = 5; break;
-            case "sniper": classId = 2; break;
-            case "spy": classId = 8; break;
-            case "random": classId = 0; break;
+        case "scout": classId = 1; break;
+        case "soldier": classId = 3; break;
+        case "pyro": classId = 7; break;
+        case "demo":
+        case "demoman": classId = 4; break;
+        case "heavy": classId = 6; break;
+        case "engi":
+        case "engineer": classId = 9; break;
+        case "medic": classId = 5; break;
+        case "sniper": classId = 2; break;
+        case "spy": classId = 8; break;
+        case "random": classId = 0; break;
         }
         if (args[0].tolower() != "original")
             controller.KeyValueFromInt("bot_class", clamp(classId, 0, 9));
@@ -1835,7 +1886,7 @@ AddCommand({
         {
             number = clamp(args[0].tointeger(), 0, 5).tostring();
         }
-        catch(err) {}
+        catch (err) {}
         vars.Ramp = number;
         if (number == "0") number = "random spawns";
         ClientPrint(speaker, 3, EVENT + format("  Switched bot spawn to %d", number));
@@ -2156,7 +2207,7 @@ function OnTimer()
 
                         NetProps.SetPropFloat(weapon, "m_flEnergy", 20);
                     }
-                    catch(err) {}
+                    catch (err) {}
                 }
             }
 
@@ -2176,7 +2227,7 @@ function OnTimer()
                         if (NetProps.HasProp(weapon, "m_flChargeLevel"))
                             NetProps.SetPropFloat(weapon, "m_flChargeLevel", 1);
                     }
-                    catch(err) {}
+                    catch (err) {}
                 }
 
                 // jetpack / gas
