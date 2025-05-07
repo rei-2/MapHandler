@@ -14,11 +14,13 @@ local EVENT = "\x07ffff80";
 local PERMISSION = "\x07800000";
 local ERROR = "\x07ff0000";
 
-local BotSpawnDefault = false;
-local AllowGiveWeapon = true;
+local BotSpawnDefault = true;
+local AllowGiveWeapon = false;
 
 if (AllowGiveWeapon)
     IncludeScript("give_tf_weapon/_master.nut"); // https://tf2maps.net/downloads/vscript-give_tf_weapon.14897/
+
+local MESSAGE_MAX_LENGTH = 249;
 
 local function min(...)
 {
@@ -152,6 +154,14 @@ function removeTrailingStr(text, char = " ")
     while (text.len() && text[text.len() - 1].tochar() == char)
         text = text.slice(0, text.len() - 1);
     return text;
+}
+function splitClientPrint(speaker, destination, message)
+{
+    while (message.len())
+    {
+        ClientPrint(speaker, destination, message.slice(0, min(MESSAGE_MAX_LENGTH, message.len())));
+        message = message.slice(min(MESSAGE_MAX_LENGTH, message.len()), message.len());
+    }
 }
 
 
@@ -405,10 +415,10 @@ AddCommand({
         // ^ command info; any information after the first index will be treated as extra info only given with '!help <cmd>' (be sure any text does not exceed 255 bytes in order to be shown)
     "Function": function(speaker, args, vars = null) // function executed when command is used; player who used command, any arguments used, and associated variables are passed
     {
-        ClientPrint(speaker, 3, INFORMATION + "  Information printed in console");
+        splitClientPrint(speaker, 3, INFORMATION + "  Information printed in console");
         if (args[0] == "__generic")
         {
-            ClientPrint(speaker, 1, "\nCommands: \n\n");
+            splitClientPrint(speaker, 1, "\nCommands: \n\n");
             foreach (entry in Commands)
             {
                 local text = format("  %s%s", Prefix, entry.Command[0]);
@@ -422,9 +432,9 @@ AddCommand({
                 }
                 text += format(" - requirement: %d", entry.Requirement);
                 text += format("\n    >%s\n\n", entry.Description[0]);
-                ClientPrint(speaker, 1, text);
+                splitClientPrint(speaker, 1, text);
             }
-            ClientPrint(speaker, 1, format("  Use '%shelp <command>' to see more information about a command", Prefix));
+            splitClientPrint(speaker, 1, format("  Use '%shelp <command>' to see more information about a command", Prefix));
         }
         else
         {
@@ -439,8 +449,8 @@ AddCommand({
             }
             if (entry != null)
             {
-                ClientPrint(speaker, 1, format("\n  %s: \n", entry.Command[0]));
-                ClientPrint(speaker, 1, format("    >requirement: %d\n", entry.Requirement));
+                splitClientPrint(speaker, 1, format("\n  %s: \n", entry.Command[0]));
+                splitClientPrint(speaker, 1, format("    >requirement: %d\n", entry.Requirement));
                 local text = "    >aliases: ";
                 foreach (index,alias in entry.Command)
                 {
@@ -458,22 +468,22 @@ AddCommand({
                         text += format(" (%s: %s)", arg, def);
                 }
                 text += "\n    >" + entry.Description[0];
-                ClientPrint(speaker, 1, text);
+                splitClientPrint(speaker, 1, text);
 
                 if (entry.Description.len() > 1)
                 {
                     foreach (index, text in entry.Description)
                     {
                         if (index != 0)
-                            ClientPrint(speaker, 1, format("     %s", text));
+                            splitClientPrint(speaker, 1, format("     %s", text));
                     }
                 }
                 else
-                    ClientPrint(speaker, 1, "     No extra information given");
-                ClientPrint(speaker, 1, "\n");
+                    splitClientPrint(speaker, 1, "     No extra information given");
+                splitClientPrint(speaker, 1, "\n");
             }
             else
-                ClientPrint(speaker, 1, "\nNo such command exists");
+                splitClientPrint(speaker, 1, "\nNo such command exists");
         }
     }
     //"Variables": { "Variable": value } // associated variables with the command
@@ -486,7 +496,7 @@ AddCommand({
     "Function": function(speaker, args, vars = null)
     {
         foreach (player in GetPlayers(speaker, args[0]))
-            ClientPrint(speaker, 3, INFORMATION + format("  %s: %s", NetProps.GetPropString(player, "m_szNetname"), NetProps.GetPropString(player, "m_szNetworkIDString")));
+            splitClientPrint(speaker, 3, INFORMATION + format("  %s: %s", NetProps.GetPropString(player, "m_szNetname"), NetProps.GetPropString(player, "m_szNetworkIDString")));
     }
 });
 if (AllowClaimRoot)
@@ -500,10 +510,10 @@ if (AllowClaimRoot)
             if (!Players.len())
             {
                 Players[NetProps.GetPropString(speaker, "m_szNetworkIDString")] <- ROOT_PERMISSION;
-                ClientPrint(speaker, 3, PERMISSION + "  Claimed root");
+                splitClientPrint(speaker, 3, PERMISSION + "  Claimed root");
             }
             else
-                ClientPrint(speaker, 3, PERMISSION + "  Can't claim root");
+                splitClientPrint(speaker, 3, PERMISSION + "  Can't claim root");
         }
     });
 }
@@ -519,7 +529,7 @@ AddCommand({
             if (!(uID in Players) || Players[uID] == NO_PERMISSION)
             {
                 Players[uID] <- GIVEN_PERMISSION;
-                ClientPrint(speaker, 3, PERMISSION + format("  Gave command permissions to %s", NetProps.GetPropString(player, "m_szNetname")));
+                splitClientPrint(speaker, 3, PERMISSION + format("  Gave command permissions to %s", NetProps.GetPropString(player, "m_szNetname")));
             }
         }
     },
@@ -537,7 +547,7 @@ AddCommand({
             if (uID in Players && GetPlayerPermission(player) < ROOT_PERMISSION)
             {
                 delete Players[uID];
-                ClientPrint(speaker, 3, PERMISSION + format("  Removed command permissions from %s", NetProps.GetPropString(player, "m_szNetname")));
+                splitClientPrint(speaker, 3, PERMISSION + format("  Removed command permissions from %s", NetProps.GetPropString(player, "m_szNetname")));
             }
         }
     },
@@ -550,7 +560,7 @@ AddCommand({
     "Function": function(speaker, args, vars = null)
     {
         foreach (player in GetPlayers(speaker, args[0]))
-            ClientPrint(speaker, 3, PERMISSION + format("  Permission of %s is %d", NetProps.GetPropString(player, "m_szNetname"), GetPlayerPermission(player)));
+            splitClientPrint(speaker, 3, PERMISSION + format("  Permission of %s is %d", NetProps.GetPropString(player, "m_szNetname"), GetPlayerPermission(player)));
     }
 });
 AddCommand({
@@ -618,11 +628,11 @@ AddCommand({
             local playerPermission = GetPlayerPermission(player);
             if (speakerPermission <= playerPermission)
             {
-                ClientPrint(speaker, 3, PERMISSION + format("  Insufficient permissions to kick %s", NetProps.GetPropString(player, "m_szNetname")));
+                splitClientPrint(speaker, 3, PERMISSION + format("  Insufficient permissions to kick %s", NetProps.GetPropString(player, "m_szNetname")));
                 continue;
             }
 
-            ClientPrint(speaker, 3, EVENT + format("  Kicked %s", NetProps.GetPropString(player, "m_szNetname")));
+            splitClientPrint(speaker, 3, EVENT + format("  Kicked %s", NetProps.GetPropString(player, "m_szNetname")));
             player.Kill(); // is there a better way to kick/remove players?
         }
     }
@@ -640,12 +650,12 @@ AddCommand({
             local playerPermission = GetPlayerPermission(player);
             if (speakerPermission <= playerPermission)
             {
-                ClientPrint(speaker, 3, PERMISSION + format("  Insufficient permissions to ban %s", NetProps.GetPropString(player, "m_szNetname")));
+                splitClientPrint(speaker, 3, PERMISSION + format("  Insufficient permissions to ban %s", NetProps.GetPropString(player, "m_szNetname")));
                 continue;
             }
 
             Bans[NetProps.GetPropString(player, "m_szNetworkIDString")] <- { "Name": NetProps.GetPropString(player, "m_szNetname"), "Requirement": speakerPermission };
-            ClientPrint(speaker, 3, EVENT + format("  Banned %s", NetProps.GetPropString(player, "m_szNetname")));
+            splitClientPrint(speaker, 3, EVENT + format("  Banned %s", NetProps.GetPropString(player, "m_szNetname")));
             player.Kill();
         }
     }
@@ -661,13 +671,13 @@ AddCommand({
         {
             if (speakerPermission < info.Requirement)
             {
-                ClientPrint(speaker, 3, PERMISSION + format("  Insufficient permissions to unban %s", info.Name));
+                splitClientPrint(speaker, 3, PERMISSION + format("  Insufficient permissions to unban %s", info.Name));
                 continue;
             }
 
             if (uID.tolower() == args[0].tolower() || info.Name.tolower() == args[0].tolower() || args[0].tolower() == "all")
             {
-                ClientPrint(speaker, 3, EVENT + format("  Unbanned %s", info.Name));
+                splitClientPrint(speaker, 3, EVENT + format("  Unbanned %s", info.Name));
                 delete Bans[uID];
             }
         }
@@ -679,9 +689,9 @@ AddCommand({
     "Description": [ "Gets ban list" ],
     "Function": function(speaker, args, vars = null)
     {
-        ClientPrint(speaker, 3, STATUS + "  Bans:");
+        splitClientPrint(speaker, 3, STATUS + "  Bans:");
         foreach (uID,info in Bans)
-            ClientPrint(speaker, 3, STATUS + format("    %s (%s) -> %d", info.Name, uID, info.Requirement));
+            splitClientPrint(speaker, 3, STATUS + format("    %s (%s) -> %d", info.Name, uID, info.Requirement));
     }
 });
 AddCommand({
@@ -923,9 +933,9 @@ AddCommand({
         {
             local vec = player.GetOrigin();
             if (args[1].tolower() == "t" || args[1].tolower() == "true")
-                ClientPrint(speaker, 3, STATUS + format("  Position of %s is vector(%.9g, %.9g, %.9g)", NetProps.GetPropString(player, "m_szNetname"), vec.x, vec.y, vec.z));
+                splitClientPrint(speaker, 3, STATUS + format("  Position of %s is vector(%.9g, %.9g, %.9g)", NetProps.GetPropString(player, "m_szNetname"), vec.x, vec.y, vec.z));
             else
-                ClientPrint(speaker, 3, STATUS + format("  Position of %s is vector(%.0f, %.0f, %.0f)", NetProps.GetPropString(player, "m_szNetname"), vec.x, vec.y, vec.z));
+                splitClientPrint(speaker, 3, STATUS + format("  Position of %s is vector(%.0f, %.0f, %.0f)", NetProps.GetPropString(player, "m_szNetname"), vec.x, vec.y, vec.z));
         }
     }
 });
@@ -959,9 +969,9 @@ AddCommand({
         {
             local vec = player.GetVelocity();
             if (args[1].tolower() == "t" || args[1].tolower() == "true")
-                ClientPrint(speaker, 3, STATUS + format("  Velocity of %s is vector(%.9g, %.9g, %.9g)", NetProps.GetPropString(player, "m_szNetname"), vec.x, vec.y, vec.z));
+                splitClientPrint(speaker, 3, STATUS + format("  Velocity of %s is vector(%.9g, %.9g, %.9g)", NetProps.GetPropString(player, "m_szNetname"), vec.x, vec.y, vec.z));
             else
-                ClientPrint(speaker, 3, STATUS + format("  Velocity of %s is vector(%.0f, %.0f, %.0f)", NetProps.GetPropString(player, "m_szNetname"), vec.x, vec.y, vec.z));
+                splitClientPrint(speaker, 3, STATUS + format("  Velocity of %s is vector(%.0f, %.0f, %.0f)", NetProps.GetPropString(player, "m_szNetname"), vec.x, vec.y, vec.z));
         }
     }
 });
@@ -996,9 +1006,9 @@ AddCommand({
         {
             local ang = player.EyeAngles();
             if (args[1].tolower() == "t" || args[1].tolower() == "true")
-                ClientPrint(speaker, 3, STATUS + format("  Eye angles of %s is qangle(%.9g, %.9g, %.9g)", NetProps.GetPropString(player, "m_szNetname"), ang.x, ang.y, ang.z));
+                splitClientPrint(speaker, 3, STATUS + format("  Eye angles of %s is qangle(%.9g, %.9g, %.9g)", NetProps.GetPropString(player, "m_szNetname"), ang.x, ang.y, ang.z));
             else
-                ClientPrint(speaker, 3, STATUS + format("  Eye angles of %s is qangle(%.0f, %.0f, %.0f)", NetProps.GetPropString(player, "m_szNetname"), ang.x, ang.y, ang.z));
+                splitClientPrint(speaker, 3, STATUS + format("  Eye angles of %s is qangle(%.0f, %.0f, %.0f)", NetProps.GetPropString(player, "m_szNetname"), ang.x, ang.y, ang.z));
         }
     }
 });
@@ -1213,9 +1223,9 @@ AddCommand({
     {
         vars.Enabled = !vars.Enabled;
         if (vars.Enabled)
-            ClientPrint(speaker, 3, EVENT + "  Instant respawn enabled");
+            splitClientPrint(speaker, 3, EVENT + "  Instant respawn enabled");
         else
-            ClientPrint(speaker, 3, EVENT + "  Instant respawn disabled");
+            splitClientPrint(speaker, 3, EVENT + "  Instant respawn disabled");
     },
     "Variables": { "Enabled": true }
 });
@@ -1231,7 +1241,7 @@ AddCommand({
             local pos = player.GetOrigin() + Vector(0, 0, 1);
             local ang = player.EyeAngles();
             customSpawns[player] <- [ pos, ang ];
-            ClientPrint(speaker, 3, EVENT + format("  Gave %s a custom spawn at vector(%.9g, %.9g, %.9g)", NetProps.GetPropString(player, "m_szNetname"), pos.x, pos.y, pos.z));
+            splitClientPrint(speaker, 3, EVENT + format("  Gave %s a custom spawn at vector(%.9g, %.9g, %.9g)", NetProps.GetPropString(player, "m_szNetname"), pos.x, pos.y, pos.z));
         }
     }
 });
@@ -1244,7 +1254,7 @@ AddCommand({
         foreach (player in GetPlayers(speaker, args[0]))
         {
             if (player in customSpawns) delete customSpawns[player];
-            ClientPrint(speaker, 3, EVENT + format("  Removed %s's custom spawn"), NetProps.GetPropString(player, "m_szNetname"));
+            splitClientPrint(speaker, 3, EVENT + format("  Removed %s's custom spawn"), NetProps.GetPropString(player, "m_szNetname"));
         }
     }
 });
@@ -1256,9 +1266,9 @@ AddCommand({
     {
         vars.Enabled = !vars.Enabled;
         if (vars.Enabled)
-            ClientPrint(speaker, 3, EVENT + "  Constant regen enabled");
+            splitClientPrint(speaker, 3, EVENT + "  Constant regen enabled");
         else
-            ClientPrint(speaker, 3, EVENT + "  Constant regen disabled");
+            splitClientPrint(speaker, 3, EVENT + "  Constant regen disabled");
     },
     "Variables": { "Enabled": true }
 });
@@ -1270,9 +1280,9 @@ AddCommand({
     {
         vars.Enabled = !vars.Enabled;
         if (vars.Enabled)
-            ClientPrint(speaker, 3, EVENT + "  Health regen enabled");
+            splitClientPrint(speaker, 3, EVENT + "  Health regen enabled");
         else
-            ClientPrint(speaker, 3, EVENT + "  Health regen disabled");
+            splitClientPrint(speaker, 3, EVENT + "  Health regen disabled");
     },
     "Variables": { "Enabled": true }
 });
@@ -1284,9 +1294,9 @@ AddCommand({
     {
         vars.Enabled = !vars.Enabled;
         if (vars.Enabled)
-            ClientPrint(speaker, 3, EVENT + "  Ammo regen enabled");
+            splitClientPrint(speaker, 3, EVENT + "  Ammo regen enabled");
         else
-            ClientPrint(speaker, 3, EVENT + "  Ammo regen disabled");
+            splitClientPrint(speaker, 3, EVENT + "  Ammo regen disabled");
     },
     "Variables": { "Enabled": true }
 });
@@ -1298,9 +1308,9 @@ AddCommand({
     {
         vars.Enabled = !vars.Enabled;
         if (vars.Enabled)
-            ClientPrint(speaker, 3, EVENT + "  Item regen enabled");
+            splitClientPrint(speaker, 3, EVENT + "  Item regen enabled");
         else
-            ClientPrint(speaker, 3, EVENT + "  Item regen disabled");
+            splitClientPrint(speaker, 3, EVENT + "  Item regen disabled");
     },
     "Variables": { "Enabled": true }
 });
@@ -1314,12 +1324,12 @@ AddCommand({
         local speakerPermission = GetPlayerPermission(speaker);
         if (speakerPermission < vars.Requirement || speakerPermission < permission)
         {
-            ClientPrint(speaker, 3, PERMISSION + format("  Insufficient permissions to set regen permission from %d to %d", vars.Requirement, permission));
+            splitClientPrint(speaker, 3, PERMISSION + format("  Insufficient permissions to set regen permission from %d to %d", vars.Requirement, permission));
             return;
         }
 
         vars.Requirement = permission;
-        ClientPrint(speaker, 3, EVENT + format("  Regen permission set to %d", permission));
+        splitClientPrint(speaker, 3, EVENT + format("  Regen permission set to %d", permission));
     },
     "Variables": { "Requirement": NO_PERMISSION }
 });
@@ -1385,7 +1395,7 @@ AddCommand({
                 if (args[3] != "__get")
                     ent.AddCustomAttribute(args[2], args[3].tofloat(), -1);
                 else
-                    ClientPrint(speaker, 3, STATUS + format("  Attribute %s is %.9g", args[2], ent.GetCustomAttribute(args[2], -2147483647)));
+                    splitClientPrint(speaker, 3, STATUS + format("  Attribute %s is %.9g", args[2], ent.GetCustomAttribute(args[2], -2147483647)));
             }
             else
             {
@@ -1393,7 +1403,7 @@ AddCommand({
                 if (args[3] != "__get")
                     ent.AddAttribute(args[2], args[3].tofloat(), -1);
                 else
-                    ClientPrint(speaker, 3, STATUS + format("  Attribute %s is %.9g", args[2], ent.GetAttribute(args[2], -2147483647)));
+                    splitClientPrint(speaker, 3, STATUS + format("  Attribute %s is %.9g", args[2], ent.GetAttribute(args[2], -2147483647)));
             }
             if (args[4] != "infinite" && ent != null)
             {
@@ -1551,7 +1561,7 @@ AddCommand({
                         data += format("%s%d", data != "" ? ", " : "", NetProps.GetPropEntityArray(ent, args[2], i).entindex());
                     break;
                 }
-                ClientPrint(speaker, 3, STATUS + format("  %s (%s, %d) \x01:  %s", args[2], type, size, data));
+                splitClientPrint(speaker, 3, STATUS + format("  %s (%s, %d) \x01:  %s", args[2], type, size, data));
             }
         }
     }
@@ -1845,9 +1855,9 @@ AddCommand({
     {
         vars.Enabled = !vars.Enabled;
         if (vars.Enabled)
-            ClientPrint(speaker, 3, EVENT + "  Bots clear other bots");
+            splitClientPrint(speaker, 3, EVENT + "  Bots clear other bots");
         else
-            ClientPrint(speaker, 3, EVENT + "  Bots no longer clear other bots");
+            splitClientPrint(speaker, 3, EVENT + "  Bots no longer clear other bots");
     },
     "Variables": { "Enabled": false }
 });
@@ -1859,9 +1869,9 @@ AddCommand({
     {
         vars.Enabled = !vars.Enabled;
         if (vars.Enabled)
-            ClientPrint(speaker, 3, EVENT + "  Bots remove on death");
+            splitClientPrint(speaker, 3, EVENT + "  Bots remove on death");
         else
-            ClientPrint(speaker, 3, EVENT + "  Bots no longer remove on death");
+            splitClientPrint(speaker, 3, EVENT + "  Bots no longer remove on death");
     },
     "Variables": { "Enabled": false }
 });
@@ -1872,7 +1882,7 @@ AddCommand({
     "Function": function(speaker, args, vars = null)
     {
         controller.KeyValueFromString("bot_name", args[0]);
-        ClientPrint(speaker, 3, EVENT + format("  New bots now have name %s", args[0]));
+        splitClientPrint(speaker, 3, EVENT + format("  New bots now have name %s", args[0]));
     }
 });
 AddCommand({
@@ -1889,7 +1899,7 @@ AddCommand({
         catch (err) {}
         vars.Ramp = number;
         if (number == "0") number = "random spawns";
-        ClientPrint(speaker, 3, EVENT + format("  Switched bot spawn to %d", number));
+        splitClientPrint(speaker, 3, EVENT + format("  Switched bot spawn to %d", number));
     },
     "Variables": { "Ramp": "0" }
 });
@@ -1901,9 +1911,9 @@ AddCommand({
     {
         vars.Enabled = !vars.Enabled;
         if (vars.Enabled)
-            ClientPrint(speaker, 3, EVENT + "  Bots spawn on ramps");
+            splitClientPrint(speaker, 3, EVENT + "  Bots spawn on ramps");
         else
-            ClientPrint(speaker, 3, EVENT + "  Bots no longer spawn on ramps");
+            splitClientPrint(speaker, 3, EVENT + "  Bots no longer spawn on ramps");
     },
     "Variables": { "Enabled": BotSpawnDefault }
 });
@@ -1971,12 +1981,12 @@ AddCommand({
         if (vars.Enabled)
         {
             EntFire("Wall", "Enable");
-            ClientPrint(speaker, 3, EVENT + "  Walls enabled");
+            splitClientPrint(speaker, 3, EVENT + "  Walls enabled");
         }
         else
         {
             EntFire("Wall", "Disable");
-            ClientPrint(speaker, 3, EVENT + "  Walls disabled");
+            splitClientPrint(speaker, 3, EVENT + "  Walls disabled");
         }
     },
     "Variables": { "Enabled": true }
@@ -1991,12 +2001,12 @@ AddCommand({
         if (vars.Enabled)
         {
             EntFire("FallBoundary", "Enable");
-            ClientPrint(speaker, 3, EVENT + "  Fall boundary enabled");
+            splitClientPrint(speaker, 3, EVENT + "  Fall boundary enabled");
         }
         else
         {
             EntFire("FallBoundary", "Disable");
-            ClientPrint(speaker, 3, EVENT + "  Fall boundary disabled");
+            splitClientPrint(speaker, 3, EVENT + "  Fall boundary disabled");
         }
     },
     "Variables": { "Enabled": false }
@@ -2008,7 +2018,7 @@ AddCommand({
     "Function": function(speaker, args, vars = null)
     {
         foreach (player in GetPlayers(speaker, args[0]))
-            ClientPrint(speaker, 3, args[1]);
+            splitClientPrint(speaker, 3, args[1]);
     }
 });
 
@@ -2072,13 +2082,13 @@ function OnGameEvent_player_say(data)
         }
         if (typeof command == "string")
         {
-            ClientPrint(speaker, 3, ERROR + "  Invalid command");
+            splitClientPrint(speaker, 3, ERROR + "  Invalid command");
             return;
         }
         if (command.Requirement > speakerPermission)
         {
             if (speakerPermission != NO_PERMISSION)
-                ClientPrint(speaker, 3, PERMISSION + "  Insufficient permissions to run this command");
+                splitClientPrint(speaker, 3, PERMISSION + "  Insufficient permissions to run this command");
             return;
         }
 
@@ -2091,7 +2101,7 @@ function OnGameEvent_player_say(data)
                 {
                     if (def == null)
                     {
-                        ClientPrint(speaker, 3, ERROR + "  Missing argument");
+                        splitClientPrint(speaker, 3, ERROR + "  Missing argument");
                         return;
                     }
                     args.append(def);
@@ -2103,7 +2113,7 @@ function OnGameEvent_player_say(data)
                     args[i] = def;
                 if (args[i] == null)
                 {
-                    ClientPrint(speaker, 3, ERROR + "  Missing argument");
+                    splitClientPrint(speaker, 3, ERROR + "  Missing argument");
                     return;
                 }
             }
