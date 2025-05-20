@@ -53,7 +53,7 @@ local function sleep(seconds, thr)
     suspend("sleep");
 }
 
-function findAll(text, pattern, from = 0, to = 0)
+local function findAll(text, pattern, from = 0, to = 0)
 {
     local finds = [];
     local i = 0;
@@ -69,7 +69,7 @@ function findAll(text, pattern, from = 0, to = 0)
     }
     return finds;
 }
-function findAllOutsideOf(text, pattern, start, end, from = 0, to = 0)
+local function findAllOutsideOf(text, pattern, start, end, from = 0, to = 0)
 {
     local ignores = [];
     local finds = [];
@@ -111,7 +111,7 @@ function findAllOutsideOf(text, pattern, start, end, from = 0, to = 0)
     }
     return finds;
 }
-function replace(text, pattern, replacement, from = 0, to = 0)
+local function replace(text, pattern, replacement, from = 0, to = 0)
 {
     local newText = "";
     local i = 0;
@@ -123,7 +123,7 @@ function replace(text, pattern, replacement, from = 0, to = 0)
     newText += text.slice(i, text.len());
     return newText;
 }
-function splitAt(text, positions)
+local function splitAt(text, positions)
 {
     local splits = [];
     positions.append(-1);
@@ -143,25 +143,33 @@ function splitAt(text, positions)
     }
     return splits;
 }
-function removeStartingStr(text, char = " ")
+local function removeStartingStr(text, char = " ")
 {
     while (text.len() && text[0].tochar() == char)
         text = text.slice(1, text.len());
     return text;
 }
-function removeTrailingStr(text, char = " ")
+local function removeTrailingStr(text, char = " ")
 {
     while (text.len() && text[text.len() - 1].tochar() == char)
         text = text.slice(0, text.len() - 1);
     return text;
 }
-function splitClientPrint(speaker, destination, message)
+local function splitClientPrint(speaker, destination, message)
 {
     while (message.len())
     {
         ClientPrint(speaker, destination, message.slice(0, min(MESSAGE_MAX_LENGTH, message.len())));
         message = message.slice(min(MESSAGE_MAX_LENGTH, message.len()), message.len());
     }
+}
+local function GetPlayerName(player)
+{
+    return NetProps.GetPropString(player, "m_szNetname");
+}
+local function GetPlayerID(player)
+{
+    return NetProps.GetPropString(player, "m_szNetworkIDString");
 }
 
 
@@ -172,7 +180,7 @@ ClearGameEventCallbacks();
 
 local Commands = [];
 local CmdVars = {};
-function AddCommand(commandInfo)
+local function AddCommand(commandInfo)
 {
     if ("Variables" in commandInfo)
     {
@@ -211,7 +219,7 @@ local specialCases = {
         local players = [];
         for (local ent; ent = Entities.FindByClassname(ent, "player");)
         {
-            if (NetProps.GetPropString(ent, "m_szNetworkIDString") != "BOT")
+            if (GetPlayerID(ent) != "BOT")
                 players.append(ent);
         }
         return players;
@@ -221,7 +229,7 @@ local specialCases = {
         local players = [];
         for (local ent; ent = Entities.FindByClassname(ent, "player");)
         {
-            if (NetProps.GetPropString(ent, "m_szNetworkIDString") == "BOT")
+            if (GetPlayerID(ent) == "BOT")
                 players.append(ent);
         }
         return players;
@@ -303,7 +311,7 @@ local specialCases = {
     {
         for (local ent; ent = Entities.FindByClassname(ent, "player");)
         {
-            if (NetProps.GetPropString(ent, "m_szNetworkIDString") == text.toupper())
+            if (GetPlayerID(ent) == text.toupper())
                 return [ ent ];
         }
         return [];
@@ -330,7 +338,7 @@ local specialCases = {
 specialCases["blue"] <- specialCases["blu"];
 specialCases["uid=_"] <- specialCases["id=_"];
 
-function GetPlayers(speaker, text)
+local function GetPlayers(speaker, text)
 {
     local list = split(text.tolower(), ",");
     local add = [], sub = [];
@@ -371,7 +379,7 @@ function GetPlayers(speaker, text)
         {
             local ent; while (ent = Entities.FindByClassname(ent, "player"))
             {
-                if (NetProps.GetPropString(ent, "m_szNetname").tolower().find(plrStr) == 0 && to.find(ent) == null)
+                if (GetPlayerName(ent).tolower().find(plrStr) == 0 && to.find(ent) == null)
                     to.append(ent);
             }
         }
@@ -387,9 +395,9 @@ function GetPlayers(speaker, text)
     }
     return players;
 }
-function GetPlayerPermission(player, fallback = NO_PERMISSION)
+local function GetPlayerPermission(player, fallback = NO_PERMISSION)
 {
-    local uID = NetProps.GetPropString(player, "m_szNetworkIDString");
+    local uID = GetPlayerID(player);
     if (uID == "")
         return ROOT_PERMISSION; // grant console root permission
 
@@ -496,7 +504,7 @@ AddCommand({
     "Function": function(speaker, args, vars = null)
     {
         foreach (player in GetPlayers(speaker, args[0]))
-            splitClientPrint(speaker, 3, INFORMATION + format("  %s: %s", NetProps.GetPropString(player, "m_szNetname"), NetProps.GetPropString(player, "m_szNetworkIDString")));
+            splitClientPrint(speaker, 3, INFORMATION + format("  %s: %s", GetPlayerName(player), GetPlayerID(player)));
     }
 });
 if (AllowClaimRoot)
@@ -509,7 +517,7 @@ if (AllowClaimRoot)
         {
             if (!Players.len())
             {
-                Players[NetProps.GetPropString(speaker, "m_szNetworkIDString")] <- ROOT_PERMISSION;
+                Players[GetPlayerID(speaker)] <- ROOT_PERMISSION;
                 splitClientPrint(speaker, 3, PERMISSION + "  Claimed root");
             }
             else
@@ -525,11 +533,11 @@ AddCommand({
     {
         foreach (player in GetPlayers(speaker, args[0]))
         {
-            local uID = NetProps.GetPropString(player, "m_szNetworkIDString");
+            local uID = GetPlayerID(player);
             if (!(uID in Players) || Players[uID] == NO_PERMISSION)
             {
                 Players[uID] <- GIVEN_PERMISSION;
-                splitClientPrint(speaker, 3, PERMISSION + format("  Gave command permissions to %s", NetProps.GetPropString(player, "m_szNetname")));
+                splitClientPrint(speaker, 3, PERMISSION + format("  Gave command permissions to %s", GetPlayerName(player)));
             }
         }
     },
@@ -543,11 +551,11 @@ AddCommand({
     {
         foreach (player in GetPlayers(speaker, args[0]))
         {
-            local uID = NetProps.GetPropString(player, "m_szNetworkIDString");
+            local uID = GetPlayerID(player);
             if (uID in Players && GetPlayerPermission(player) < ROOT_PERMISSION)
             {
                 delete Players[uID];
-                splitClientPrint(speaker, 3, PERMISSION + format("  Removed command permissions from %s", NetProps.GetPropString(player, "m_szNetname")));
+                splitClientPrint(speaker, 3, PERMISSION + format("  Removed command permissions from %s", GetPlayerName(player)));
             }
         }
     },
@@ -560,7 +568,7 @@ AddCommand({
     "Function": function(speaker, args, vars = null)
     {
         foreach (player in GetPlayers(speaker, args[0]))
-            splitClientPrint(speaker, 3, PERMISSION + format("  Permission of %s is %d", NetProps.GetPropString(player, "m_szNetname"), GetPlayerPermission(player)));
+            splitClientPrint(speaker, 3, PERMISSION + format("  Permission of %s is %d", GetPlayerName(player), GetPlayerPermission(player)));
     }
 });
 AddCommand({
@@ -628,11 +636,11 @@ AddCommand({
             local playerPermission = GetPlayerPermission(player);
             if (speakerPermission <= playerPermission)
             {
-                splitClientPrint(speaker, 3, PERMISSION + format("  Insufficient permissions to kick %s", NetProps.GetPropString(player, "m_szNetname")));
+                splitClientPrint(speaker, 3, PERMISSION + format("  Insufficient permissions to kick %s", GetPlayerName(player)));
                 continue;
             }
 
-            splitClientPrint(speaker, 3, EVENT + format("  Kicked %s", NetProps.GetPropString(player, "m_szNetname")));
+            splitClientPrint(speaker, 3, EVENT + format("  Kicked %s", GetPlayerName(player)));
             player.Kill(); // is there a better way to kick/remove players?
         }
     }
@@ -650,12 +658,12 @@ AddCommand({
             local playerPermission = GetPlayerPermission(player);
             if (speakerPermission <= playerPermission)
             {
-                splitClientPrint(speaker, 3, PERMISSION + format("  Insufficient permissions to ban %s", NetProps.GetPropString(player, "m_szNetname")));
+                splitClientPrint(speaker, 3, PERMISSION + format("  Insufficient permissions to ban %s", GetPlayerName(player)));
                 continue;
             }
 
-            Bans[NetProps.GetPropString(player, "m_szNetworkIDString")] <- { "Name": NetProps.GetPropString(player, "m_szNetname"), "Requirement": speakerPermission };
-            splitClientPrint(speaker, 3, EVENT + format("  Banned %s", NetProps.GetPropString(player, "m_szNetname")));
+            Bans[GetPlayerID(player)] <- { "Name": GetPlayerName(player), "Requirement": speakerPermission };
+            splitClientPrint(speaker, 3, EVENT + format("  Banned %s", GetPlayerName(player)));
             player.Kill();
         }
     }
@@ -762,12 +770,35 @@ AddCommand({
 });
 AddCommand({
     "Command": [ "health" ],
-    "Arguments": [ { "player": "me" }, { "value": null } ],
-    "Description": [ "Gives all players a given health" ],
+    "Arguments": [ { "player": "me" }, { "value": "__get" } ],
+    "Description": [ "Gives players a given health" ],
     "Function": function(speaker, args, vars = null)
     {
         foreach (player in GetPlayers(speaker, args[0]))
-            player.SetHealth(args[1].tointeger());
+        {
+            if (args[1] != "__get")
+                player.SetHealth(args[1].tointeger());
+            else
+                splitClientPrint(speaker, 3, STATUS + format("  Health of %s is %.9g", GetPlayerName(player), player.GetHealth()));
+        }
+    }
+});
+AddCommand({
+    "Command": [ "maxhealth" ],
+    "Arguments": [ { "player": "me" }, { "value": "__get" } ],
+    "Description": [ "Sets players' max health" ],
+    "Function": function(speaker, args, vars = null)
+    {
+        foreach (player in GetPlayers(speaker, args[0]))
+        {
+            if (args[1] != "__get")
+            {
+                local health = player.GetMaxHealth() - player.GetCustomAttribute("max health additive bonus", 0);
+                player.AddCustomAttribute("max health additive bonus", args[1].tointeger() - health, -1);
+            }
+            else
+                splitClientPrint(speaker, 3, STATUS + format("  Max health of %s is %.9g", GetPlayerName(player), player.GetMaxHealth()));
+        }
     }
 });
 if (AllowGiveWeapon)
@@ -933,9 +964,9 @@ AddCommand({
         {
             local vec = player.GetOrigin();
             if (args[1].tolower() == "t" || args[1].tolower() == "true")
-                splitClientPrint(speaker, 3, STATUS + format("  Position of %s is vector(%.9g, %.9g, %.9g)", NetProps.GetPropString(player, "m_szNetname"), vec.x, vec.y, vec.z));
+                splitClientPrint(speaker, 3, STATUS + format("  Position of %s is vector(%.9g, %.9g, %.9g)", GetPlayerName(player), vec.x, vec.y, vec.z));
             else
-                splitClientPrint(speaker, 3, STATUS + format("  Position of %s is vector(%.0f, %.0f, %.0f)", NetProps.GetPropString(player, "m_szNetname"), vec.x, vec.y, vec.z));
+                splitClientPrint(speaker, 3, STATUS + format("  Position of %s is vector(%.0f, %.0f, %.0f)", GetPlayerName(player), vec.x, vec.y, vec.z));
         }
     }
 });
@@ -969,9 +1000,9 @@ AddCommand({
         {
             local vec = player.GetVelocity();
             if (args[1].tolower() == "t" || args[1].tolower() == "true")
-                splitClientPrint(speaker, 3, STATUS + format("  Velocity of %s is vector(%.9g, %.9g, %.9g)", NetProps.GetPropString(player, "m_szNetname"), vec.x, vec.y, vec.z));
+                splitClientPrint(speaker, 3, STATUS + format("  Velocity of %s is vector(%.9g, %.9g, %.9g)", GetPlayerName(player), vec.x, vec.y, vec.z));
             else
-                splitClientPrint(speaker, 3, STATUS + format("  Velocity of %s is vector(%.0f, %.0f, %.0f)", NetProps.GetPropString(player, "m_szNetname"), vec.x, vec.y, vec.z));
+                splitClientPrint(speaker, 3, STATUS + format("  Velocity of %s is vector(%.0f, %.0f, %.0f)", GetPlayerName(player), vec.x, vec.y, vec.z));
         }
     }
 });
@@ -1006,9 +1037,9 @@ AddCommand({
         {
             local ang = player.EyeAngles();
             if (args[1].tolower() == "t" || args[1].tolower() == "true")
-                splitClientPrint(speaker, 3, STATUS + format("  Eye angles of %s is qangle(%.9g, %.9g, %.9g)", NetProps.GetPropString(player, "m_szNetname"), ang.x, ang.y, ang.z));
+                splitClientPrint(speaker, 3, STATUS + format("  Eye angles of %s is qangle(%.9g, %.9g, %.9g)", GetPlayerName(player), ang.x, ang.y, ang.z));
             else
-                splitClientPrint(speaker, 3, STATUS + format("  Eye angles of %s is qangle(%.0f, %.0f, %.0f)", NetProps.GetPropString(player, "m_szNetname"), ang.x, ang.y, ang.z));
+                splitClientPrint(speaker, 3, STATUS + format("  Eye angles of %s is qangle(%.0f, %.0f, %.0f)", GetPlayerName(player), ang.x, ang.y, ang.z));
         }
     }
 });
@@ -1241,7 +1272,7 @@ AddCommand({
             local pos = player.GetOrigin() + Vector(0, 0, 1);
             local ang = player.EyeAngles();
             customSpawns[player] <- [ pos, ang ];
-            splitClientPrint(speaker, 3, EVENT + format("  Gave %s a custom spawn at vector(%.9g, %.9g, %.9g)", NetProps.GetPropString(player, "m_szNetname"), pos.x, pos.y, pos.z));
+            splitClientPrint(speaker, 3, EVENT + format("  Gave %s a custom spawn at vector(%.9g, %.9g, %.9g)", GetPlayerName(player), pos.x, pos.y, pos.z));
         }
     }
 });
@@ -1254,7 +1285,7 @@ AddCommand({
         foreach (player in GetPlayers(speaker, args[0]))
         {
             if (player in customSpawns) delete customSpawns[player];
-            splitClientPrint(speaker, 3, EVENT + format("  Removed %s's custom spawn"), NetProps.GetPropString(player, "m_szNetname"));
+            splitClientPrint(speaker, 3, EVENT + format("  Removed %s's custom spawn"), GetPlayerName(player));
         }
     }
 });
@@ -1774,7 +1805,7 @@ if ("BotController" in getconsttable())
 }
 local controller = Entities.CreateByClassname("bot_controller"); getconsttable()["BotController"] <- controller;
 local spawnPosition;
-function Bot(position = null)
+local function Bot(position = null)
 {
     if (CmdVars.bot_remove.Enabled)
     {
@@ -1791,13 +1822,13 @@ function OnGameEvent_player_spawn(data)
     if (player == null)
         return;
 
-    if (NetProps.GetPropString(player, "m_szNetworkIDString") in Bans)
+    if (GetPlayerID(player) in Bans)
     {
         player.Kill();
         return;
     }
 
-    if (spawnPosition == null && CmdVars.bot_rampspawn.Enabled && NetProps.GetPropString(player, "m_szNetworkIDString") == "BOT")
+    if (spawnPosition == null && CmdVars.bot_rampspawn.Enabled && GetPlayerID(player) == "BOT")
     {
         if (CmdVars.bot_forcespawn.Ramp == "0")
             spawnPosition = spawns[RandomInt(1, 4).tostring()];
@@ -2024,11 +2055,11 @@ AddCommand({
 
 
 
-function GetCommand(text)
+local function GetCommand(text)
 {
     return replace(split(text, " ")[0], Prefix, "").tolower();
 }
-function GetArgs(text, maxArgs = -1)
+local function GetArgs(text, maxArgs = -1)
 {
     local args = [];
 
@@ -2134,7 +2165,7 @@ function OnGameEvent_player_death(data)
         DeadPlayers[player] <- Time();
 }
 local MaxAmmos = {};
-function OnTimer()
+local function OnTimer()
 {
     foreach (player,time in DeadPlayers)
     {
@@ -2142,7 +2173,7 @@ function OnTimer()
         {
             if (player.IsValid())
             {
-                if (CmdVars.bot_temporary.Enabled && NetProps.GetPropString(player, "m_szNetworkIDString") == "BOT") 
+                if (CmdVars.bot_temporary.Enabled && GetPlayerID(player) == "BOT") 
                     player.Kill();
                 else if (CmdVars.instant_respawn.Enabled)
                     player.ForceRespawn();
@@ -2152,7 +2183,7 @@ function OnTimer()
     }
     foreach (player,_ in customSpawns)
     {
-        if (NetProps.GetPropString(player, "m_szNetworkIDString") == "")
+        if (GetPlayerID(player) == "")
             delete customSpawns[player];
     }
 
@@ -2161,27 +2192,7 @@ function OnTimer()
         // not using player.Regenerate as that seems somewhat bloated
         local player; while (player = Entities.FindByClassname(player, "player"))
         {
-            //if (CmdVars.regen_permission.Requirement > GetPlayerPermission(player))
-            //    continue;
-
-            local permission = NO_PERMISSION;
-            {   // from GetPlayerPermission as it's erroring upon a map loading it
-                local foundRoot = false;
-                foreach (uID,permission in Players)
-                {
-                    if (permission == ROOT_PERMISSION)
-                        foundRoot = true;
-                }
-                if (!foundRoot)
-                    permission = GIVEN_PERMISSION;
-                else
-                {
-                    local uID = NetProps.GetPropString(player, "m_szNetworkIDString");
-                    if (uID in Players)
-                        permission = Players[uID];
-                }
-            }
-            if (CmdVars.regen_permission.Requirement > permission)
+            if (CmdVars.regen_permission.Requirement > GetPlayerPermission(player))
                 continue;
 
             if (CmdVars.health_regen.Enabled)
