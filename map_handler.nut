@@ -1978,7 +1978,7 @@ AddCommand({
 AddCommand({
     "Command": [ "bot_spawntp", "bot_spawns", "bot_spawn" ],
     "Arguments": [{ "spawn": "__toggle" }],
-    "Description": [ "Toggles whether or not bots spawn on ramps", "spawn: '<integer>' - the ramp to spawn on; ramps are numbered; 0 to choose random spawns" ],
+    "Description": [ "Toggles whether or not bots have custom spawns", "spawn: '<integer>' - the spawn to use, 0 to choose random spawns" ],
     "Function": function(speaker, args, vars = null)
     {
         if (args[0] == "__toggle")
