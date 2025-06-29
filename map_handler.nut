@@ -1,5 +1,5 @@
 local Prefix = "!";
-local HiddenPrefix = ":"; // currently unused, not sure of a way to filter/hide chat messages
+//local HiddenPrefix = ":"; // currently unused, not sure of a way to filter/hide chat messages
 local CmdBreak = ";";
 
 local ROOT_PERMISSION = 2;
@@ -14,7 +14,7 @@ local EVENT = "\x07ffff80";
 local PERMISSION = "\x07800000";
 local ERROR = "\x07ff0000";
 
-local BotSpawnDefault = true;
+local BotSpawnDefault = false;
 local AllowGiveWeapon = false;
 
 if (AllowGiveWeapon)
@@ -142,6 +142,13 @@ local function splitAt(text, positions)
         lastPosition = position + 1;
     }
     return splits;
+}
+local function multString(text, number)
+{
+    local str = "";
+    for (local i = 0; i < number; i++)
+        str += text;
+    return str;
 }
 local function removeStartingStr(text, char = " ")
 {
@@ -582,9 +589,9 @@ AddCommand({
     }
 });
 AddCommand({
-    "Command": [ "refresh" ],
+    "Command": [ "refresh", "re" ],
     "Arguments": [ { "player": "me" } ],
-    "Description": [ "Respawn a player, while retaining position, viewangles, and some other information" ],
+    "Description": [ "Respawn a player, while retaining position, viewangles, and some other data" ],
     "Function": function(speaker, args, vars = null)
     {
         foreach (player in GetPlayers(speaker, args[0]))
@@ -598,6 +605,24 @@ AddCommand({
             player.SetVelocity(velocity);
             player.SnapEyeAngles(angles);
             player.SetMoveType(moveType, 0);
+        }
+    }
+});
+AddCommand({
+    "Command": [ "reset" ],
+    "Arguments": [ { "player": "me" } ],
+    "Description": [ "Respawn a player, while retaining position and viewangles" ],
+    "Function": function(speaker, args, vars = null)
+    {
+        foreach (player in GetPlayers(speaker, args[0]))
+        {
+            local origin = player.GetOrigin();
+            local velocity = player.GetVelocity();
+            local angles = player.EyeAngles();
+            player.ForceRespawn();
+            player.SetAbsOrigin(origin);
+            player.SetVelocity(velocity);
+            player.SnapEyeAngles(angles);
         }
     }
 });
@@ -723,6 +748,24 @@ AddCommand({
     }
 });
 AddCommand({
+    "Command": [ "clearchat" ],
+    "Arguments": [ { "count": "248" } ],
+    "Description": [ "Clears chat with newlines" ],
+    "Function": function(speaker, args, vars = null)
+    {
+        local count = args[0].tointeger();
+
+        local str = "";
+        for (local i = 0; i < count; i++)
+        {
+            if (!(str.len() % MESSAGE_MAX_LENGTH))
+                str += " ";
+            str += "\n";
+        }
+        splitClientPrint(null, 3, str);
+    }
+});
+AddCommand({
     "Command": [ "gravity", "grav" ],
     "Arguments": [ { "value": "800" } ],
     "Description": [ "Sets the gravity of the server" ],
@@ -804,9 +847,9 @@ AddCommand({
 if (AllowGiveWeapon)
 {
     AddCommand({
-        "Command": ["give_weapon", "giveweapon", "give"],
+        "Command": [ "give_weapon", "giveweapon", "give" ],
         "Arguments": [ { "player": "me" }, { "weapon": null } ],
-        "Description": [""],
+        "Description": [ "Gives a specified weapon to a player" ],
         "Function": function(speaker, args, vars = null) {
             foreach (player in GetPlayers(speaker, args[0])) {
                 player.GiveWeapon(args[1])
@@ -951,6 +994,22 @@ AddCommand({
             player.SetAbsOrigin(pos + offset);
             if (args[2].tolower() == "t" || args[2].tolower() == "true")
                 offset += Vector(0, 0, player.GetBoundingMaxs().z + 1);
+        }
+    }
+});
+AddCommand({
+    "Command": [ "to" ],
+    "Arguments": [ { "to": null }, { "offset": "false" } ],
+    "Description": [ "Teleports to another player", "from: '<player>'", "to: '<player>', '__cursor' / '__bounds' / '__plane' / '__point' - your aim position, with varying bounds (__plane and __point may get stuck), 'vector(x, y, z)' - some position" ],
+    "Function": function(speaker, args, vars = null)
+    {
+        foreach (entry in Commands)
+        {
+            if (entry.Command[0] == "teleport")
+            {
+                entry.Function(speaker, [ "me" args[0], args[1] ]);
+                break;
+            }
         }
     }
 });
@@ -1815,7 +1874,7 @@ local function Bot(position = null)
     EntFireByHandle(controller, "CreateBot", "", 0, null, null);
     spawnPosition = position;
 }
-local spawns = { "1": Vector(440, 0, -16056), "3": Vector(-440, 0, -16056), "4": Vector(0, 440, -16056), "2": Vector(0, -440, -16056), "5": Vector(440, -440, -12280) };
+local spawns = [ Vector(440, 0, -16056), Vector(-440, 0, -16056), Vector(0, 440, -16056), Vector(0, -440, -16056), Vector(440, -440, -12280) ];
 function OnGameEvent_player_spawn(data)
 {
     local player = GetPlayerFromUserID(data.userid);
@@ -1828,12 +1887,12 @@ function OnGameEvent_player_spawn(data)
         return;
     }
 
-    if (spawnPosition == null && CmdVars.bot_rampspawn.Enabled && GetPlayerID(player) == "BOT")
+    if (spawnPosition == null && CmdVars.bot_spawntp.Enabled && GetPlayerID(player) == "BOT")
     {
-        if (CmdVars.bot_forcespawn.Ramp == "0")
-            spawnPosition = spawns[RandomInt(1, 4).tostring()];
+        if (CmdVars.bot_spawntp.Spawn == 0)
+            spawnPosition = spawns[RandomInt(0, spawns.len() - 1)];
         else
-            spawnPosition = spawns[CmdVars.bot_forcespawn.Ramp];
+            spawnPosition = spawns[CmdVars.bot_spawntp.Spawn - 1];
     }
     if (player in customSpawns)
     {
@@ -1917,36 +1976,37 @@ AddCommand({
     }
 });
 AddCommand({
-    "Command": [ "bot_forcespawn", "forcespawn" ],
-    "Arguments": [ { "ramp": "0" } ],
-    "Description": [ "Switches which ramp bots spawn on", "ramp: '<integer>' - the ramp to spawn on; ramps are numbered; 0 to choose random spawns" ],
+    "Command": [ "bot_spawntp", "bot_spawns", "bot_spawn" ],
+    "Arguments": [{ "spawn": "__toggle" }],
+    "Description": [ "Toggles whether or not bots spawn on ramps", "spawn: '<integer>' - the ramp to spawn on; ramps are numbered; 0 to choose random spawns" ],
     "Function": function(speaker, args, vars = null)
     {
-        local number = "0";
-        try
+        if (args[0] == "__toggle")
         {
-            number = clamp(args[0].tointeger(), 0, 5).tostring();
+            vars.Enabled = !vars.Enabled;
+            if (vars.Enabled)
+                splitClientPrint(speaker, 3, EVENT + "  Bot spawns enabled");
+            else
+                splitClientPrint(speaker, 3, EVENT + "  Bot spawns disabled");
         }
-        catch (err) {}
-        vars.Ramp = number;
-        if (number == "0") number = "random spawns";
-        splitClientPrint(speaker, 3, EVENT + format("  Switched bot spawn to %d", number));
-    },
-    "Variables": { "Ramp": "0" }
-});
-AddCommand({
-    "Command": [ "bot_rampspawn", "bot_spawntp", "bot_ramp" ],
-    "Arguments": [],
-    "Description": [ "Toggles whether or not bots spawn on ramps" ],
-    "Function": function(speaker, args, vars = null)
-    {
-        vars.Enabled = !vars.Enabled;
-        if (vars.Enabled)
-            splitClientPrint(speaker, 3, EVENT + "  Bots spawn on ramps");
         else
-            splitClientPrint(speaker, 3, EVENT + "  Bots no longer spawn on ramps");
+        {
+            local number = 0;
+            try
+            {
+                number = clamp(args[0].tointeger(), 0, spawns.len());
+            }
+            catch (err) {}
+            vars.Spawn = number;
+
+            if (number == 0)
+                number = "random spawns";
+            else
+                number = number.tostring();
+            splitClientPrint(speaker, 3, EVENT + format("  Switched bot spawn to %s", number));
+        }
     },
-    "Variables": { "Enabled": BotSpawnDefault }
+    "Variables": { "Enabled": BotSpawnDefault, "Spawn": 0 }
 });
 AddCommand({
     "Command": [ "bot_mimic" ],
@@ -1958,7 +2018,7 @@ AddCommand({
     }
 });
 AddCommand({
-    "Command": [ "bot_mimic_inverse", "bot_mimicinverse", "bot_inverse" ],
+    "Command": [ "bot_mimic_inverse", "bot_inverse" ],
     "Arguments": [ { "int": "0" } ],
     "Description": [ "Sets whether or not mimic movement is inverse" ],
     "Function": function(speaker, args, vars = null)
@@ -1967,7 +2027,7 @@ AddCommand({
     }
 });
 AddCommand({
-    "Command": [ "bot_mimic_yaw" ],
+    "Command": [ "bot_mimic_yaw", "bot_yaw" ],
     "Arguments": [ { "int": "180" } ],
     "Description": [ "Sets the view offset" ],
     "Function": function(speaker, args, vars = null)
@@ -2149,10 +2209,7 @@ function OnGameEvent_player_say(data)
                 }
             }
         }
-        if (command.Command[0] in CmdVars)
-            rawcall(command.Function, this, speaker, args, CmdVars[command.Command[0]]); // rawcall needed, dum
-        else
-            rawcall(command.Function, this, speaker, args);
+        command.Function(speaker, args, command.Command[0] in CmdVars ? CmdVars[command.Command[0]] : null);
     }
 }
 
