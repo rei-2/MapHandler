@@ -1319,6 +1319,25 @@ AddCommand({
     },
     "Variables": { "Enabled": true }
 });
+AddCommand({
+    "Command": [ "instant_requirement", "instant_permission" ],
+    "Arguments": [ { "permission": null } ],
+    "Description": [ "Sets permission required to have instant respawn be used" ],
+    "Function": function(speaker, args, vars = null)
+    {
+        local requirement = args[0].tointeger();
+        local permission = GetPlayerPermission(speaker);
+        if (permission < vars.Requirement || permission < requirement)
+        {
+            splitClientPrint(speaker, 3, PERMISSION + format("  Insufficient permissions to set instant respawn requirement from %d to %d", vars.Requirement, requirement));
+            return;
+        }
+
+        vars.Requirement = requirement;
+        splitClientPrint(speaker, 3, EVENT + format("  Instant respawn requirement set to %d", requirement));
+    },
+    "Variables": { "Requirement": NO_PERMISSION }
+});
 local customSpawns = {}
 AddCommand({
     "Command": [ "custom_spawn", "customspawn", "set_spawn", "setspawn" ],
@@ -1349,7 +1368,7 @@ AddCommand({
     }
 });
 AddCommand({
-    "Command": [ "constant_regen", "constantregen", "constant", "regen" ],
+    "Command": [ "constant_regen", "constantregen", "regen" ],
     "Arguments": [],
     "Description": [ "Toggles constant refresh of health and ammo" ],
     "Function": function(speaker, args, vars = null)
@@ -1405,21 +1424,21 @@ AddCommand({
     "Variables": { "Enabled": true }
 });
 AddCommand({
-    "Command": [ "regen_permission", "regen_requirement" ],
+    "Command": [ "regen_requirement", "regen_permission" ],
     "Arguments": [ { "permission": null } ],
     "Description": [ "Sets permission required to have regen be used" ],
     "Function": function(speaker, args, vars = null)
     {
-        local permission = args[0].tointeger();
-        local speakerPermission = GetPlayerPermission(speaker);
-        if (speakerPermission < vars.Requirement || speakerPermission < permission)
+        local requirement = args[0].tointeger();
+        local permission = GetPlayerPermission(speaker);
+        if (permission < vars.Requirement || permission < requirement)
         {
-            splitClientPrint(speaker, 3, PERMISSION + format("  Insufficient permissions to set regen permission from %d to %d", vars.Requirement, permission));
+            splitClientPrint(speaker, 3, PERMISSION + format("  Insufficient permissions to set regen requirement from %d to %d", vars.Requirement, requirement));
             return;
         }
 
-        vars.Requirement = permission;
-        splitClientPrint(speaker, 3, EVENT + format("  Regen permission set to %d", permission));
+        vars.Requirement = requirement;
+        splitClientPrint(speaker, 3, EVENT + format("  Regen requirement set to %d", requirement));
     },
     "Variables": { "Requirement": NO_PERMISSION }
 });
@@ -2233,7 +2252,10 @@ local function OnTimer()
                 if (CmdVars.bot_temporary.Enabled && GetPlayerID(player) == "BOT") 
                     player.Kill();
                 else if (CmdVars.instant_respawn.Enabled)
-                    player.ForceRespawn();
+                {
+                    if (CmdVars.instant_requirement.Requirement <= GetPlayerPermission(player))
+                        player.ForceRespawn();
+                }
             }
             delete DeadPlayers[player];
         }
@@ -2249,7 +2271,7 @@ local function OnTimer()
         // not using player.Regenerate as that seems somewhat bloated
         local player; while (player = Entities.FindByClassname(player, "player"))
         {
-            if (CmdVars.regen_permission.Requirement > GetPlayerPermission(player))
+            if (CmdVars.regen_requirement.Requirement > GetPlayerPermission(player))
                 continue;
 
             if (CmdVars.health_regen.Enabled)
@@ -2304,6 +2326,10 @@ local function OnTimer()
                         // uber
                         if (NetProps.HasProp(weapon, "m_flChargeLevel"))
                             NetProps.SetPropFloat(weapon, "m_flChargeLevel", 1);
+
+                        // carbine
+                        if (NetProps.HasProp(weapon, "m_flMinicritCharge") && !player.InCond(19 /*TF_COND_ENERGY_BUFF*/)) // allow expiration
+                            NetProps.SetPropFloat(weapon, "m_flMinicritCharge", 100);
                     }
                     catch (err) {}
                 }
