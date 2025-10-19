@@ -579,7 +579,7 @@ AddCommand({
     }
 });
 AddCommand({
-    "Command": [ "respawn" ],
+    "Command": [ "respawn", "res" ],
     "Arguments": [ { "player": "me" } ],
     "Description": [ "Respawn a player" ],
     "Function": function(speaker, args, vars = null)
