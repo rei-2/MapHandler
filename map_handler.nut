@@ -40,11 +40,30 @@ local function max(...)
     }
     return max;
 }
-local function clamp(value, min, max) {
+local function clamp(value, min, max)
+{
     if (min > max) throw("Minimum larger than maximum");
     if (value < min) return min;
     if (value > max) return max;
     return value;
+}
+local function tobool(str)
+{
+    switch (str.tolower())
+    {
+    case "t":
+    case "tr":
+    case "tru":
+    case "true": return true;
+    }
+    try
+    {
+        return str.tointeger() ? true : false;
+    }
+    catch (err)
+    {
+        return false;
+    }
 }
 local sleeps = {};
 local function sleep(seconds, thr)
@@ -323,6 +342,27 @@ local specialCases = {
         }
         return [];
     },
+
+    "entities": function(speaker)
+    {
+        local entities = [];
+        for (local ent = Entities.First(); ent; ent = Entities.Next(ent))
+            entities.append(ent);
+        return entities;
+    },
+    "e:_": function(speaker, text)
+    {
+        for (local ent; ent = Entities.FindByClassname(ent, text);)
+            return [ ent ];
+        return [];
+    },
+    "es:_": function(speaker, text)
+    {
+        local entities = [];
+        for (local ent; ent = Entities.FindByClassname(ent, text);)
+            entities.append(ent);
+        return entities;
+    },
     "!picker": function(speaker)
     {
         local start = speaker.EyePosition();
@@ -345,7 +385,9 @@ local specialCases = {
 specialCases["blue"] <- specialCases["blu"];
 specialCases["uid=_"] <- specialCases["id=_"];
 
-local function GetPlayers(speaker, text)
+local TargetPlayers = 1 << 0;
+local TargetOther = 1 << 1;
+local function GetTargets(speaker, text, flags = TargetPlayers)
 {
     local list = split(text.tolower(), ",");
     local add = [], sub = [];
@@ -356,29 +398,42 @@ local function GetPlayers(speaker, text)
         if (plrStr.find("+") == 0)
             plrStr = replace(plrStr, "+", "");
         else if (plrStr.find("-") == 0)
-            to = sub; plrStr = replace(plrStr, "-", "");
+            to = sub, plrStr = replace(plrStr, "-", "");
 
         local caseFound = false;
         foreach (str,func in specialCases)
         {
+            local flag = TargetPlayers;
+            switch (str)
+            {
+            case "entities":
+            case "e:_":
+            case "es:_":
+            case "!picker": flag = TargetOther;
+            }
+            if (!(flags & flag))
+                continue;
+
             if (str.find("_") != null && plrStr.find(replace(str, "_", "")) == 0)
             {
                 try
                 {
-                    foreach (player in func(speaker, plrStr.slice(replace(str, "_", "").len(), plrStr.len())))
+                    foreach (target in func(speaker, plrStr.slice(replace(str, "_", "").len(), plrStr.len())))
                     {
-                        if (to.find(player) == null) to.append(player);
+                        if (to.find(target) == null)
+                            to.append(target);
                     }
-                    caseFound = true
+                    caseFound = true;
                 }
                 catch (err) {}
             }
             if (plrStr == str && !caseFound)
             {
                 caseFound = true;
-                foreach (player in func(speaker))
+                foreach (target in func(speaker))
                 {
-                    if (to.find(player) == null) to.append(player);
+                    if (to.find(target) == null)
+                        to.append(target);
                 }
             }
         }
@@ -392,15 +447,13 @@ local function GetPlayers(speaker, text)
         }
     }
 
-    local players = [];
-    foreach (player in add)
+    local targets = [];
+    foreach (target in add)
     {
-        if (sub.find(player) == null)
-        {
-            players.append(player);
-        }
+        if (sub.find(target) == null)
+            targets.append(target);
     }
-    return players;
+    return targets;
 }
 local function GetPlayerPermission(player, fallback = NO_PERMISSION)
 {
@@ -510,8 +563,8 @@ AddCommand({
     "Description": [ "Gets a player's Steam ID" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
-            splitClientPrint(speaker, 3, INFORMATION + format("  %s: %s", GetPlayerName(player), GetPlayerID(player)));
+        foreach (target in GetTargets(speaker, args[0]))
+            splitClientPrint(speaker, 3, INFORMATION + format("  %s: %s", GetPlayerName(target), GetPlayerID(target)));
     }
 });
 if (AllowClaimRoot)
@@ -538,13 +591,13 @@ AddCommand({
     "Description": [ "Gives command permissions to players" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0]))
         {
-            local uID = GetPlayerID(player);
+            local uID = GetPlayerID(target);
             if (!(uID in Players) || Players[uID] == NO_PERMISSION)
             {
                 Players[uID] <- GIVEN_PERMISSION;
-                splitClientPrint(speaker, 3, PERMISSION + format("  Gave command permissions to %s", GetPlayerName(player)));
+                splitClientPrint(speaker, 3, PERMISSION + format("  Gave command permissions to %s", GetPlayerName(target)));
             }
         }
     },
@@ -556,13 +609,13 @@ AddCommand({
     "Description": [ "Removes command permissions to players" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0]))
         {
-            local uID = GetPlayerID(player);
-            if (uID in Players && GetPlayerPermission(player) < ROOT_PERMISSION)
+            local uID = GetPlayerID(target);
+            if (uID in Players && GetPlayerPermission(target) < ROOT_PERMISSION)
             {
                 delete Players[uID];
-                splitClientPrint(speaker, 3, PERMISSION + format("  Removed command permissions from %s", GetPlayerName(player)));
+                splitClientPrint(speaker, 3, PERMISSION + format("  Removed command permissions from %s", GetPlayerName(target)));
             }
         }
     },
@@ -574,8 +627,8 @@ AddCommand({
     "Description": [ "Gets command permissions of players" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
-            splitClientPrint(speaker, 3, PERMISSION + format("  Permission of %s is %d", GetPlayerName(player), GetPlayerPermission(player)));
+        foreach (target in GetTargets(speaker, args[0]))
+            splitClientPrint(speaker, 3, PERMISSION + format("  Permission of %s is %d", GetPlayerName(target), GetPlayerPermission(target)));
     }
 });
 AddCommand({
@@ -584,8 +637,8 @@ AddCommand({
     "Description": [ "Respawn a player" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
-            player.ForceRespawn();
+        foreach (target in GetTargets(speaker, args[0]))
+            target.ForceRespawn();
     }
 });
 AddCommand({
@@ -594,17 +647,17 @@ AddCommand({
     "Description": [ "Respawn a player, while retaining position, viewangles, and some other data" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0]))
         {
-            local origin = player.GetOrigin();
-            local velocity = player.GetVelocity();
-            local angles = player.EyeAngles();
-            local moveType = player.GetMoveType();
-            player.ForceRespawn();
-            player.SetAbsOrigin(origin);
-            player.SetVelocity(velocity);
-            player.SnapEyeAngles(angles);
-            player.SetMoveType(moveType, 0);
+            local origin = target.GetOrigin();
+            local velocity = target.GetVelocity();
+            local angles = target.EyeAngles();
+            local moveType = target.GetMoveType();
+            target.ForceRespawn();
+            target.SetAbsOrigin(origin);
+            target.SetVelocity(velocity);
+            target.SnapEyeAngles(angles);
+            target.SetMoveType(moveType, 0);
         }
     }
 });
@@ -614,15 +667,15 @@ AddCommand({
     "Description": [ "Respawn a player, while retaining position and viewangles" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0]))
         {
-            local origin = player.GetOrigin();
-            local velocity = player.GetVelocity();
-            local angles = player.EyeAngles();
-            player.ForceRespawn();
-            player.SetAbsOrigin(origin);
-            player.SetVelocity(velocity);
-            player.SnapEyeAngles(angles);
+            local origin = target.GetOrigin();
+            local velocity = target.GetVelocity();
+            local angles = target.EyeAngles();
+            target.ForceRespawn();
+            target.SetAbsOrigin(origin);
+            target.SetVelocity(velocity);
+            target.SnapEyeAngles(angles);
         }
     }
 });
@@ -632,8 +685,8 @@ AddCommand({
     "Description": [ "Stuns a player" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
-            player.StunPlayer(args[1].tofloat(), args[2].tofloat(), args[3].tointeger(), null);
+        foreach (target in GetTargets(speaker, args[0]))
+            target.StunPlayer(args[1].tofloat(), args[2].tofloat(), args[3].tointeger(), null);
     }
 });
 AddCommand({
@@ -642,10 +695,10 @@ AddCommand({
     "Description": [ "Kill a player" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0]))
         {
-            //NetProps.SetPropInt(player, "m_lifeState", 1);
-            player.TakeDamage(player.GetHealth() + 1, 0, null);
+            //NetProps.SetPropInt(target, "m_lifeState", 1);
+            target.TakeDamage(target.GetHealth() + 1, 0, null);
         }
     }
 });
@@ -656,17 +709,17 @@ AddCommand({
     "Function": function(speaker, args, vars = null)
     {
         local speakerPermission = GetPlayerPermission(speaker);
-        foreach (player in GetPlayers(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0]))
         {
-            local playerPermission = GetPlayerPermission(player);
+            local playerPermission = GetPlayerPermission(target);
             if (speakerPermission <= playerPermission)
             {
-                splitClientPrint(speaker, 3, PERMISSION + format("  Insufficient permissions to kick %s", GetPlayerName(player)));
+                splitClientPrint(speaker, 3, PERMISSION + format("  Insufficient permissions to kick %s", GetPlayerName(target)));
                 continue;
             }
 
-            splitClientPrint(speaker, 3, EVENT + format("  Kicked %s", GetPlayerName(player)));
-            player.Kill(); // is there a better way to kick/remove players?
+            splitClientPrint(speaker, 3, EVENT + format("  Kicked %s", GetPlayerName(target)));
+            target.Kill(); // is there a better way to kick/remove players?
         }
     }
 });
@@ -678,18 +731,18 @@ AddCommand({
     "Function": function(speaker, args, vars = null)
     {
         local speakerPermission = GetPlayerPermission(speaker);
-        foreach (player in GetPlayers(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0]))
         {
-            local playerPermission = GetPlayerPermission(player);
+            local playerPermission = GetPlayerPermission(target);
             if (speakerPermission <= playerPermission)
             {
-                splitClientPrint(speaker, 3, PERMISSION + format("  Insufficient permissions to ban %s", GetPlayerName(player)));
+                splitClientPrint(speaker, 3, PERMISSION + format("  Insufficient permissions to ban %s", GetPlayerName(target)));
                 continue;
             }
 
-            Bans[GetPlayerID(player)] <- { "Name": GetPlayerName(player), "Requirement": speakerPermission };
-            splitClientPrint(speaker, 3, EVENT + format("  Banned %s", GetPlayerName(player)));
-            player.Kill();
+            Bans[GetPlayerID(target)] <- { "Name": GetPlayerName(target), "Requirement": speakerPermission };
+            splitClientPrint(speaker, 3, EVENT + format("  Banned %s", GetPlayerName(target)));
+            target.Kill();
         }
     }
 });
@@ -733,8 +786,8 @@ AddCommand({
     "Description": [ "Force a player to chat" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
-            Say(player, format("\x02%s", args[1]), false); // use \x02 to prevent unwanted usage of commands
+        foreach (target in GetTargets(speaker, args[0]))
+            Say(target, format("\x02%s", args[1]), false); // use \x02 to prevent unwanted usage of commands
     }
 });
 AddCommand({
@@ -743,8 +796,8 @@ AddCommand({
     "Description": [ "Force a player to team chat" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
-            Say(player, format("\x02%s", args[1]), true);
+        foreach (target in GetTargets(speaker, args[0]))
+            Say(target, format("\x02%s", args[1]), true);
     }
 });
 AddCommand({
@@ -780,8 +833,8 @@ AddCommand({
     "Description": [ "Change a player's walking speed", "Note: annoyingly capped at 520, prone to being overwritten" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
-            NetProps.SetPropFloat(player, "m_flMaxspeed", args[1].tofloat());
+        foreach (target in GetTargets(speaker, args[0]))
+            NetProps.SetPropFloat(target, "m_flMaxspeed", args[1].tofloat());
     }
 });
 AddCommand({
@@ -802,12 +855,12 @@ AddCommand({
     "Description": [ "Heals players back to full health" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0]))
         {
-            if (args[1].tolower() == "t" || args[1].tolower() == "true")
-                player.SetHealth(player.GetMaxHealth());
+            if (tobool(args[1]))
+                target.SetHealth(target.GetMaxHealth());
             else
-                player.SetHealth(max(player.GetMaxHealth(), player.GetHealth()));
+                target.SetHealth(max(target.GetMaxHealth(), target.GetHealth()));
         }
     }
 });
@@ -817,12 +870,12 @@ AddCommand({
     "Description": [ "Gives players a given health" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0]))
         {
             if (args[1] != "__get")
-                player.SetHealth(args[1].tointeger());
+                target.SetHealth(args[1].tointeger());
             else
-                splitClientPrint(speaker, 3, STATUS + format("  Health of %s is %.9g", GetPlayerName(player), player.GetHealth()));
+                splitClientPrint(speaker, 3, STATUS + format("  Health of %s is %.9g", GetPlayerName(target), target.GetHealth()));
         }
     }
 });
@@ -832,15 +885,15 @@ AddCommand({
     "Description": [ "Sets players' max health" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0]))
         {
             if (args[1] != "__get")
             {
-                local health = player.GetMaxHealth() - player.GetCustomAttribute("max health additive bonus", 0);
-                player.AddCustomAttribute("max health additive bonus", args[1].tointeger() - health, -1);
+                local health = target.GetMaxHealth() - target.GetCustomAttribute("max health additive bonus", 0);
+                target.AddCustomAttribute("max health additive bonus", args[1].tointeger() - health, -1);
             }
             else
-                splitClientPrint(speaker, 3, STATUS + format("  Max health of %s is %.9g", GetPlayerName(player), player.GetMaxHealth()));
+                splitClientPrint(speaker, 3, STATUS + format("  Max health of %s is %.9g", GetPlayerName(target), target.GetMaxHealth()));
         }
     }
 });
@@ -850,10 +903,10 @@ if (AllowGiveWeapon)
         "Command": [ "give_weapon", "giveweapon", "give" ],
         "Arguments": [ { "player": "me" }, { "weapon": null } ],
         "Description": [ "Gives a specified weapon to a player" ],
-        "Function": function(speaker, args, vars = null) {
-            foreach (player in GetPlayers(speaker, args[0])) {
-                player.GiveWeapon(args[1])
-            }
+        "Function": function(speaker, args, vars = null)
+        {
+            foreach (target in GetTargets(speaker, args[0]))
+                target.GiveWeapon(args[1]);
         }
     });
 }
@@ -863,12 +916,12 @@ AddCommand({
     "Description": [ "Toggles a player's noclip" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0]))
         {
-            if (player.GetMoveType() != 8)
-                player.SetMoveType(8, 0);
+            if (target.GetMoveType() != 8)
+                target.SetMoveType(8, 0);
             else
-                player.SetMoveType(2, 0);
+                target.SetMoveType(2, 0);
         }
     }
 });
@@ -878,8 +931,8 @@ AddCommand({
     "Description": [ "Sets a player's movetype", "See https://developer.valvesoftware.com/wiki/Team_Fortress_2/Scripting/Script_Functions/Constants for values for EMoveType and EMoveCollide" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
-            player.SetMoveType(args[1].tointeger(), args[2].tointeger());
+        foreach (target in GetTargets(speaker, args[0]))
+            target.SetMoveType(args[1].tointeger(), args[2].tointeger());
     }
 });
 AddCommand({
@@ -982,18 +1035,18 @@ AddCommand({
             }
             catch (err)
             {
-                local player = GetPlayers(speaker, args[1])[0];
-                pos = player.GetOrigin();
-                if (args[2].tolower() == "t" || args[2].tolower() == "true")
-                    offset += Vector(0, 0, player.GetBoundingMaxs().z + 1);
+                local target = GetTargets(speaker, args[1])[0];
+                pos = target.GetOrigin();
+                if (tobool(args[2]))
+                    offset += Vector(0, 0, target.GetBoundingMaxs().z + 1);
             }
         }
 
-        foreach (player in GetPlayers(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0]))
         {
-            player.SetAbsOrigin(pos + offset);
-            if (args[2].tolower() == "t" || args[2].tolower() == "true")
-                offset += Vector(0, 0, player.GetBoundingMaxs().z + 1);
+            target.SetAbsOrigin(pos + offset);
+            if (tobool(args[2]))
+                offset += Vector(0, 0, target.GetBoundingMaxs().z + 1);
         }
     }
 });
@@ -1019,13 +1072,13 @@ AddCommand({
     "Description": [ "Gets the position of a player" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0]))
         {
-            local vec = player.GetOrigin();
-            if (args[1].tolower() == "t" || args[1].tolower() == "true")
-                splitClientPrint(speaker, 3, STATUS + format("  Position of %s is vector(%.9g, %.9g, %.9g)", GetPlayerName(player), vec.x, vec.y, vec.z));
+            local vec = target.GetOrigin();
+            if (tobool(args[1]))
+                splitClientPrint(speaker, 3, STATUS + format("  Position of %s is vector(%.9g, %.9g, %.9g)", GetPlayerName(target), vec.x, vec.y, vec.z));
             else
-                splitClientPrint(speaker, 3, STATUS + format("  Position of %s is vector(%.0f, %.0f, %.0f)", GetPlayerName(player), vec.x, vec.y, vec.z));
+                splitClientPrint(speaker, 3, STATUS + format("  Position of %s is vector(%.0f, %.0f, %.0f)", GetPlayerName(target), vec.x, vec.y, vec.z));
         }
     }
 });
@@ -1045,8 +1098,8 @@ AddCommand({
             return;
 
         local value = Vector(vector[0].tofloat(), vector[1].tofloat(), vector[2].tofloat());
-        foreach (player in GetPlayers(speaker, args[0]))
-            player.SetVelocity(value);
+        foreach (target in GetTargets(speaker, args[0]))
+            target.SetVelocity(value);
     }
 });
 AddCommand({
@@ -1055,13 +1108,13 @@ AddCommand({
     "Description": [ "Gets the velocity of a player" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0]))
         {
-            local vec = player.GetVelocity();
-            if (args[1].tolower() == "t" || args[1].tolower() == "true")
-                splitClientPrint(speaker, 3, STATUS + format("  Velocity of %s is vector(%.9g, %.9g, %.9g)", GetPlayerName(player), vec.x, vec.y, vec.z));
+            local vec = target.GetVelocity();
+            if (tobool(args[1]))
+                splitClientPrint(speaker, 3, STATUS + format("  Velocity of %s is vector(%.9g, %.9g, %.9g)", GetPlayerName(target), vec.x, vec.y, vec.z));
             else
-                splitClientPrint(speaker, 3, STATUS + format("  Velocity of %s is vector(%.0f, %.0f, %.0f)", GetPlayerName(player), vec.x, vec.y, vec.z));
+                splitClientPrint(speaker, 3, STATUS + format("  Velocity of %s is vector(%.0f, %.0f, %.0f)", GetPlayerName(target), vec.x, vec.y, vec.z));
         }
     }
 });
@@ -1082,8 +1135,8 @@ AddCommand({
             return;
 
         local value = QAngle(vector[0].tofloat(), vector[1].tofloat(), vector[2].tofloat());
-        foreach (player in GetPlayers(speaker, args[0]))
-            player.SnapEyeAngles(value);
+        foreach (target in GetTargets(speaker, args[0]))
+            target.SnapEyeAngles(value);
     }
 });
 AddCommand({
@@ -1092,13 +1145,13 @@ AddCommand({
     "Description": [ "Gets the eye angles of a player" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0]))
         {
-            local ang = player.EyeAngles();
-            if (args[1].tolower() == "t" || args[1].tolower() == "true")
-                splitClientPrint(speaker, 3, STATUS + format("  Eye angles of %s is qangle(%.9g, %.9g, %.9g)", GetPlayerName(player), ang.x, ang.y, ang.z));
+            local ang = target.EyeAngles();
+            if (tobool(args[1]))
+                splitClientPrint(speaker, 3, STATUS + format("  Eye angles of %s is qangle(%.9g, %.9g, %.9g)", GetPlayerName(target), ang.x, ang.y, ang.z));
             else
-                splitClientPrint(speaker, 3, STATUS + format("  Eye angles of %s is qangle(%.0f, %.0f, %.0f)", GetPlayerName(player), ang.x, ang.y, ang.z));
+                splitClientPrint(speaker, 3, STATUS + format("  Eye angles of %s is qangle(%.0f, %.0f, %.0f)", GetPlayerName(target), ang.x, ang.y, ang.z));
         }
     }
 });
@@ -1108,8 +1161,8 @@ AddCommand({
     "Description": [ "Forces third person" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
-            player.SetForcedTauntCam(1);
+        foreach (target in GetTargets(speaker, args[0]))
+            target.SetForcedTauntCam(1);
     }
 });
 AddCommand({
@@ -1118,8 +1171,8 @@ AddCommand({
     "Description": [ "Forces first person" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
-            player.SetForcedTauntCam(0);
+        foreach (target in GetTargets(speaker, args[0]))
+            target.SetForcedTauntCam(0);
     }
 })
 AddCommand({
@@ -1128,23 +1181,23 @@ AddCommand({
     "Description": [ "Forces a player to taunt", "Taunt IDs: https://github.com/Bradasparky/tf_taunt_tastic/blob/main/addons/sourcemod/configs/tf_taunt_tastic.cfg" /*, "Taunt IDs: https://wiki.alliedmods.net/Team_fortress_2_item_definition_indexes#Taunt_Items", "Taunt IDs: https://steamcommunity.com/app/440/discussions/0/2765630416816834092/"*/ ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0]))
         {
             local weapon = Entities.CreateByClassname("tf_weapon_bat");
-            local activeWeapon = player.GetActiveWeapon();
-            
-            player.StopTaunt(true) // both are needed to fully clear the taunt
-            player.RemoveCond(7)
-            
-            weapon.DispatchSpawn()
-            NetProps.SetPropInt(weapon, "m_AttributeManager.m_Item.m_iItemDefinitionIndex", args[1].tointeger())
-            NetProps.SetPropBool(weapon, "m_AttributeManager.m_Item.m_bInitialized", true)
-            NetProps.SetPropBool(weapon, "m_bForcePurgeFixedupStrings", true)
-            NetProps.SetPropEntity(player, "m_hActiveWeapon", weapon)
-            NetProps.SetPropInt(player, "m_iFOV", 0) // fix sniper rifles
-            player.HandleTauntCommand(0)
-            NetProps.SetPropEntity(player, "m_hActiveWeapon", activeWeapon)
-            weapon.Kill()
+            local activeWeapon = target.GetActiveWeapon();
+
+            target.StopTaunt(true); // both are needed to fully clear the taunt
+            target.RemoveCond(7);
+
+            weapon.DispatchSpawn();
+            NetProps.SetPropInt(weapon, "m_AttributeManager.m_Item.m_iItemDefinitionIndex", args[1].tointeger());
+            NetProps.SetPropBool(weapon, "m_AttributeManager.m_Item.m_bInitialized", true);
+            NetProps.SetPropBool(weapon, "m_bForcePurgeFixedupStrings", true);
+            NetProps.SetPropEntity(target, "m_hActiveWeapon", weapon);
+            NetProps.SetPropInt(target, "m_iFOV", 0); // fix sniper rifles
+            target.HandleTauntCommand(0);
+            NetProps.SetPropEntity(target, "m_hActiveWeapon", activeWeapon);
+            weapon.Kill();
         }
     }
 });
@@ -1154,8 +1207,8 @@ AddCommand({
     "Description": [ "Forces first person" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
-            NetProps.SetPropInt(player, "m_iFOV", args[1].tointeger());
+        foreach (target in GetTargets(speaker, args[0]))
+            NetProps.SetPropInt(target, "m_iFOV", args[1].tointeger());
     }
 });
 AddCommand({
@@ -1164,12 +1217,12 @@ AddCommand({
     "Description": [ "Sets a player's team", "Team: Numbers or 'BLU' / 'RED'; '2' - RED, '3' - BLU" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0]))
         {
             local newTeam = 0;
             if (args[1] == "__swap")
             {
-                switch (player.GetTeam())
+                switch (target.GetTeam())
                 {
                 case 2: newTeam = 3; break;
                 case 3: newTeam = 2; break;
@@ -1183,16 +1236,16 @@ AddCommand({
                 newTeam = args[1].tointeger();
             newTeam = clamp(newTeam, 0, 3); // avoid crashes (hopefully)
 
-            player.ForceChangeTeam(newTeam, true);
-            NetProps.SetPropInt(player, "m_iTeamNum", newTeam);
+            target.ForceChangeTeam(newTeam, true);
+            NetProps.SetPropInt(target, "m_iTeamNum", newTeam);
             local cosmetic = null; while (cosmetic = Entities.FindByClassname(cosmetic, "tf_wearable"))
             {
-                if (cosmetic.GetOwner() == player)
+                if (cosmetic.GetOwner() == target)
                     cosmetic.SetTeam(newTeam);
             }
 
-            if (args[2].tolower() == "t" || args[2].tolower() == "true")
-                player.ForceRespawn();
+            if (tobool(args[2]))
+                target.ForceRespawn();
         }
     }
 });
@@ -1202,7 +1255,7 @@ AddCommand({
     "Description": [ "Sets a player's class" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0]))
         {
             local classId = 0;
             try
@@ -1226,25 +1279,25 @@ AddCommand({
             }
             if (!classId)
                 classId = RandomInt(1, 9);
-            
-            player.SetPlayerClass(classId);
-            NetProps.SetPropInt(player, "m_Shared.m_iDesiredPlayerClass", classId);
+
+            target.SetPlayerClass(classId);
+            NetProps.SetPropInt(target, "m_Shared.m_iDesiredPlayerClass", classId);
 
             switch (args[2].tolower())
             {
             case "respawn":
-                player.ForceRespawn();
+                target.ForceRespawn();
                 break;
             case "refresh":
-                local origin = player.GetOrigin();
-                local velocity = player.GetVelocity();
-                local angles = player.EyeAngles();
-                local moveType = player.GetMoveType();
-                player.ForceRespawn();
-                player.SetAbsOrigin(origin);
-                player.SetVelocity(velocity);
-                player.SnapEyeAngles(angles);
-                player.SetMoveType(moveType, 0);
+                local origin = target.GetOrigin();
+                local velocity = target.GetVelocity();
+                local angles = target.EyeAngles();
+                local moveType = target.GetMoveType();
+                target.ForceRespawn();
+                target.SetAbsOrigin(origin);
+                target.SetVelocity(velocity);
+                target.SnapEyeAngles(angles);
+                target.SetMoveType(moveType, 0);
             }
         }
     }
@@ -1300,7 +1353,7 @@ AddCommand({
             if (args[0] == "__toggle")
                 bValue = !NetProps.GetPropBool(ent, "m_bTimerPaused");
             else
-                bValue = args[0].tolower() == "t" || args[0].tolower() == "true" ? true : false;
+                bValue = tobool(args[0]) ? true : false;
             ent.AcceptInput(bValue ? "disable" : "enable", "", null, null);
         }
     }
@@ -1345,12 +1398,12 @@ AddCommand({
     "Description": [ "Creates a custom respawn point for a player" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0]))
         {
-            local pos = player.GetOrigin() + Vector(0, 0, 1);
-            local ang = player.EyeAngles();
-            customSpawns[player] <- [ pos, ang ];
-            splitClientPrint(speaker, 3, EVENT + format("  Gave %s a custom spawn at vector(%.9g, %.9g, %.9g)", GetPlayerName(player), pos.x, pos.y, pos.z));
+            local pos = target.GetOrigin() + Vector(0, 0, 1);
+            local ang = target.EyeAngles();
+            customSpawns[target] <- [ pos, ang ];
+            splitClientPrint(speaker, 3, EVENT + format("  Gave %s a custom spawn at vector(%.9g, %.9g, %.9g)", GetPlayerName(target), pos.x, pos.y, pos.z));
         }
     }
 });
@@ -1360,10 +1413,10 @@ AddCommand({
     "Description": [ "Removes a custom respawn point for a player" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0]))
         {
-            if (player in customSpawns) delete customSpawns[player];
-            splitClientPrint(speaker, 3, EVENT + format("  Removed %s's custom spawn"), GetPlayerName(player));
+            if (target in customSpawns) delete customSpawns[target];
+            splitClientPrint(speaker, 3, EVENT + format("  Removed %s's custom spawn"), GetPlayerName(target));
         }
     }
 });
@@ -1468,23 +1521,26 @@ AddCommand({
         };
         if (!TraceLineEx(trace)) throw("TraceLineEx error. ");
 
-        foreach (player in GetPlayers(speaker, args[3]))
+        foreach (target in GetTargets(speaker, args[3]))
         {
-            local dist = (player.GetOrigin() + Vector(0, 0, 42) - trace.pos).Length();
-            if (dist > args[0].tofloat()) continue;
+            local dist = (target.GetOrigin() + Vector(0, 0, 42) - trace.pos).Length();
+            if (dist > args[0].tofloat())
+                continue;
 
             local _trace = {
                 "start": trace.pos,
-                "end": player.GetOrigin() + Vector(0, 0, 42),
-                "ignore": player
+                "end": target.GetOrigin() + Vector(0, 0, 42),
+                "ignore": target
             };
-            if (!TraceLineEx(_trace)) throw("TraceLineEx error. ");
-            if (_trace.hit) continue;
+            if (!TraceLineEx(_trace))
+                throw("TraceLineEx error. ");
+            if (_trace.hit)
+                continue;
 
-            local _dir = (player.GetOrigin() + Vector(0, 0, 42) - trace.pos); dist /= args[0].tofloat(); _dir.Norm();
+            local _dir = (target.GetOrigin() + Vector(0, 0, 42) - trace.pos); dist /= args[0].tofloat(); _dir.Norm();
             printl(_dir * (1 - (dist * args[2].tofloat())) * args[1].tofloat());
-            player.SetAbsOrigin(player.GetOrigin() + Vector(0, 0, 19));
-            player.ApplyAbsVelocityImpulse(_dir * (1 - (dist * args[2].tofloat())) * args[1].tofloat());
+            target.SetAbsOrigin(target.GetOrigin() + Vector(0, 0, 19));
+            target.ApplyAbsVelocityImpulse(_dir * (1 - (dist * args[2].tofloat())) * args[1].tofloat());
         }
     }
 });
@@ -1495,12 +1551,16 @@ AddCommand({
     "Description": [ "Gives the player/weapon a custom attribute", "slot: 'self' - applied to you, '0' - primary, '1' - secondary, '2' - tertiary, etc (conditions can only be applied to player)", "attribute: '<string>' - list at https://wiki.teamfortress.com/wiki/List_of_item_attributes" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0]))
         {
-            local ent;
-            if (args[1] == "self")
+            local ent = target;
+            if (args[1] != "self")
+                ent = NetProps.GetPropEntityArray(ent, "m_hMyWeapons", args[1].tointeger());
+            if (!ent)
+                continue;
+
+            if (ent.IsPlayer()) // rework to use IsPlayer, do ent stuff beforehand, do for all instances of this
             {
-                ent = player;
                 if (args[3] != "__get")
                     ent.AddCustomAttribute(args[2], args[3].tofloat(), -1);
                 else
@@ -1508,7 +1568,6 @@ AddCommand({
             }
             else
             {
-                ent = NetProps.GetPropEntityArray(player, "m_hMyWeapons", args[1].tointeger());
                 if (args[3] != "__get")
                     ent.AddAttribute(args[2], args[3].tofloat(), -1);
                 else
@@ -1532,33 +1591,33 @@ AddCommand({
     "Description": [ "Gives the player/weapon a custom attribute", "condition: '<id>' - list at https://wiki.teamfortress.com/wiki/Cheats#addcond" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0]))
         {
             if (args[2] == "infinite")
-                player.AddCond(args[1].tointeger())
+                target.AddCond(args[1].tointeger())
             else
-                player.AddCondEx(args[1].tointeger(), args[2].tofloat(), player)
+                target.AddCondEx(args[1].tointeger(), args[2].tofloat(), target)
         }
     }
 });
 AddCommand({
     "Command": [ "netvar", "netprop", "net" ],
-    "Arguments": [ { "player": "me" }, { "slot": "self" }, { "netvar": null }, { "value": "__get" } ],
-    "Description": [ "Sets or gets the netvar of the player/weapon", "slot: 'self' - applied to you, '0' - primary, '1' - secondary, '2' - tertiary, etc", "netprop: '<string>' - list at https://jackz.me/netprops/tf2/netprops / https://sigwiki.potato.tf/index.php/Entity_Properties" ],
+    "Arguments": [ { "target": "me" }, { "slot": "self" }, { "netvar": null }, { "value": "__get" } ],
+    "Description": [ "Sets or gets the netvar of the target", "slot: 'self' - applied to you, '0' - primary, '1' - secondary, '2' - tertiary, etc", "netprop: '<string>' - list at https://jackz.me/netprops/tf2/netprops / https://sigwiki.potato.tf/index.php/Entity_Properties" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0], TargetPlayers | TargetOther))
         {
-            local ent;
-            if (args[1] == "self")
-                ent = player;
-            else
-                ent = NetProps.GetPropEntityArray(player, "m_hMyWeapons", args[1].tointeger());
+            local ent = target;
+            if (args[1] != "self")
+                ent = NetProps.GetPropEntityArray(ent, "m_hMyWeapons", args[1].tointeger());
+            if (!ent)
+                continue;
 
             local type = NetProps.GetPropType(ent, args[2]);
             local size = max(NetProps.GetPropArraySize(ent, args[2]), 1);
             if (type == null)
-                return;
+                continue;
 
             if (args[3] != "__get")
             {
@@ -1570,7 +1629,7 @@ AddCommand({
                     for (local i = 0; i < values.len() && i < size; i++)
                     {
                         if (values[i] != "_")
-                            NetProps.SetPropBoolArray(ent, args[2], (bool)values[i].tointeger(), i);
+                            NetProps.SetPropBoolArray(ent, args[2], tobool(values[i]), i);
                     }
                     break;
                 case "integer":
@@ -1676,36 +1735,51 @@ AddCommand({
     }
 });
 AddCommand({
+    "Command": [ "fire" ],
+    "Arguments": [ { "target": "me" }, { "slot": "self" }, { "input": null }, { "param": "" } ],
+    "Description": [ "Fires event on the target" ],
+    "Function": function(speaker, args, vars = null)
+    {
+        foreach (target in GetTargets(speaker, args[0], TargetPlayers | TargetOther))
+        {
+            local ent = target;
+            if (args[1] != "self")
+                ent = NetProps.GetPropEntityArray(ent, "m_hMyWeapons", args[1].tointeger());
+            if (!ent)
+                continue;
+
+            ent.AcceptInput(args[2], args[3], null, null);
+        }
+    }
+});
+AddCommand({
     "Command": [ "remove_attribute", "removeattribute", "rematr" ],
     "Arguments": [ { "player": "me" }, { "slot": "self" }, { "atr": null } ],
     "Description": [ "Removes the given attribute on a player/weapon" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0]))
         {
-            local ent;
-            if (args[1] == "self")
-            {
-                ent = player;
+            local ent = target;
+            if (args[1] != "self")
+                ent = NetProps.GetPropEntityArray(ent, "m_hMyWeapons", args[1].tointeger());
+            if (!ent)
+                continue;
+
+            if (ent.IsPlayer())
                 ent.RemoveCustomAttribute(args[2]);
-            }
             else
-            {
-                ent = NetProps.GetPropEntityArray(player, "m_hMyWeapons", args[1].tointeger());
                 ent.RemoveAttribute(args[2]);
-            }
-            if (ent != null)
+
+            local toDelete = [];
+            foreach (index,dict in TimedAttributes)
             {
-                local toDelete = [];
-                foreach (index,dict in TimedAttributes)
-                {
-                    if (dict.Ent == ent)
-                        toDelete.append(index);
-                }
-                toDelete.reverse();
-                foreach (index in toDelete)
-                    TimedAttributes.remove(index);
+                if (dict.Ent == ent)
+                    toDelete.append(index);
             }
+            toDelete.reverse();
+            foreach (index in toDelete)
+                TimedAttributes.remove(index);
         }
     }
 });
@@ -1715,8 +1789,8 @@ AddCommand({
     "Description": [ "Removes the given condition on a player" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
-            player.RemoveCond(args[1].tointeger());
+        foreach (target in GetTargets(speaker, args[0]))
+            target.RemoveCond(args[1].tointeger());
     }
 });
 local AtrCondEvents = [];
@@ -1726,45 +1800,46 @@ function OnScriptHook_OnTakeDamage(data)
     local attacker = data.attacker;
     local weapon = data.weapon;
 
-    if (!victim.IsPlayer() || weapon == null) return;
+    if (!victim.IsPlayer() || !weapon)
+        return;
 
     // probably just loop through instead
 
     foreach (_,dict in AtrCondEvents)
     {
-        if (dict.Player != attacker) continue;
+        if (dict.Player != attacker)
+            continue;
 
         try
         {
-            local player;
+            local target;
             if (dict.Target == "self" || dict.When == "kill")
-                player = attacker;
+                target = attacker;
             else if (dict.Target == "victim" && victim.GetTeam() != attacker.GetTeam())
-                player = victim;
+                target = victim;
 
-            local ent;
-            if (dict.Slot == "self")
-                ent = player;
-            else
-                ent = NetProps.GetPropEntityArray(player, "m_hMyWeapons", dict.Slot.tointeger());
+            local ent = target;
+            if (dict.Slot != "self")
+                ent = NetProps.GetPropEntityArray(ent, "m_hMyWeapons", dict.Slot.tointeger());
 
             local conditionMet = false;
             if (dict.When == "hit")
                 conditionMet = true;
             else if (dict.When == "kill" && victim.GetHealth() - (data.damage + data.damage_bonus) <= 0 && victim.GetTeam() != attacker.GetTeam())
                 conditionMet = true;
-            if (!conditionMet) continue;
+            if (!conditionMet)
+                continue;
 
             try
             {
                 if (dict.Duration == "infinite")
-                    player.AddCond(dict.AtrCond.tointeger())
+                    target.AddCond(dict.AtrCond.tointeger())
                 else
-                    player.AddCondEx(dict.AtrCond.tointeger(), dict.Duration.tofloat(), player);
+                    target.AddCondEx(dict.AtrCond.tointeger(), dict.Duration.tofloat(), target);
             }
             catch(err)
             {
-                if (ent.GetClassname() == "player")
+                if (ent.IsPlayer())
                     ent.AddCustomAttribute(dict.AtrCond, dict.Value.tofloat(), -1);
                 else
                     ent.AddAttribute(dict.AtrCond, dict.Value.tofloat(), -1);
@@ -1788,10 +1863,10 @@ AddCommand({
     "Description": [ "Gives a player an attribute/condition upon hit/kill", "slot: 'self' - applied to the player, '0' - primary, '1' - secondary, '2' - tertiary, etc (conditions can only be applied to player)", "attribute: '<string>' - for attributes, '<integer>' - for conditions", "target: 'self' - for things to be applied to you, 'victim' - for things to be applied to the victim", "when: 'kill' - to be applied on kill, 'hit' - to be applied on hit" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0]))
         {
             AtrCondEvents.append({
-                "Player": speaker,
+                "Player": target,
                 "AtrCond": args[2].tolower(),
                 "Value": args[3].tofloat(),
                 "Duration": args[4],
@@ -1808,10 +1883,10 @@ AddCommand({
     "Description": [ "Gives a player an attribute/condition upon hit/kill", "condition: '<integer>' - for conditions", "target: 'self' - for things to be applied to you, 'victim' - for things to be applied to the victim", "when: 'kill' - to be applied on kill, 'hit' - to be applied on hit" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0]))
         {
             AtrCondEvents.append({
-                "Player": speaker,
+                "Player": target,
                 "AtrCond": args[1].tolower(),
                 "Value": 1,
                 "Duration": args[2],
@@ -1828,8 +1903,14 @@ AddCommand({
     "Description": [ "Removes a player/weapon event" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0]))
         {
+            local ent = target;
+            if (args[1] != "self")
+                ent = NetProps.GetPropEntityArray(ent, "m_hMyWeapons", args[1].tointeger());
+            if (!ent)
+                continue;
+
             local toDelete = [];
             foreach (index,dict in AtrCondEvents)
             {
@@ -1848,8 +1929,10 @@ AddCommand({
     "Description": [ "Removes a player/weapon event" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0]))
         {
+            local ent = target;
+
             local toDelete = [];
             foreach (index,dict in AtrCondEvents)
             {
@@ -1887,8 +1970,8 @@ local function Bot(position = null)
 {
     if (CmdVars.bot_remove.Enabled)
     {
-        foreach (player in GetPlayers(null, "bots"))
-            player.Kill(); // is there a better way to kick/remove players?
+        foreach (target in GetTargets(null, "bots"))
+            target.Kill(); // is there a better way to kick/remove players?
     }
     EntFireByHandle(controller, "CreateBot", "", 0, null, null);
     spawnPosition = position;
@@ -1896,30 +1979,30 @@ local function Bot(position = null)
 local spawns = [ Vector(440, 0, -16056), Vector(-440, 0, -16056), Vector(0, 440, -16056), Vector(0, -440, -16056), Vector(440, -440, -12280) ];
 function OnGameEvent_player_spawn(data)
 {
-    local player = GetPlayerFromUserID(data.userid);
-    if (player == null)
+    local target = GetPlayerFromUserID(data.userid);
+    if (!target)
         return;
 
-    if (GetPlayerID(player) in Bans)
+    if (GetPlayerID(target) in Bans)
     {
-        player.Kill();
+        target.Kill();
         return;
     }
 
-    if (spawnPosition == null && CmdVars.bot_spawntp.Enabled && GetPlayerID(player) == "BOT")
+    if (spawnPosition == null && CmdVars.bot_spawntp.Enabled && GetPlayerID(target) == "BOT")
     {
         if (CmdVars.bot_spawntp.Spawn == 0)
             spawnPosition = spawns[RandomInt(0, spawns.len() - 1)];
         else
             spawnPosition = spawns[CmdVars.bot_spawntp.Spawn - 1];
     }
-    if (player in customSpawns)
+    if (target in customSpawns)
     {
-        player.SetAbsOrigin(customSpawns[player][0]);
-        player.SnapEyeAngles(customSpawns[player][1]);
+        target.SetAbsOrigin(customSpawns[target][0]);
+        target.SnapEyeAngles(customSpawns[target][1]);
     }
     else if (spawnPosition != null)
-        player.SetAbsOrigin(spawnPosition);
+        target.SetAbsOrigin(spawnPosition);
 
     spawnPosition = null;
 }
@@ -2046,7 +2129,7 @@ AddCommand({
     }
 });
 AddCommand({
-    "Command": [ "bot_mimic_yaw", "bot_yaw" ],
+    "Command": [ "bot_mimic_yaw_offset", "bot_mimic_yaw", "bot_yaw" ],
     "Arguments": [ { "int": "180" } ],
     "Description": [ "Sets the view offset" ],
     "Function": function(speaker, args, vars = null)
@@ -2127,8 +2210,29 @@ AddCommand({
     "Description": [ "Send message to player" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (player in GetPlayers(speaker, args[0]))
-            splitClientPrint(speaker, 3, args[1]);
+        foreach (target in GetTargets(speaker, args[0]))
+            splitClientPrint(target, 3, args[1]);
+    }
+});
+AddCommand({
+    "Command": [ "textmsgtype", "clientprinttype" ],
+    "Arguments": [ { "player": "me" }, { "type": "3" }, { "text": "" } ],
+    "Description": [ "Send message to player", "type: 1: HUD_PRINTNOTIFY, 2: HUD_PRINTCONSOLE, 3: HUD_PRINTTALK, 4: HUD_PRINTCENTER" ],
+    "Function": function(speaker, args, vars = null)
+    {
+        foreach (target in GetTargets(speaker, args[0]))
+            splitClientPrint(target, args[1].tointeger(), args[2]);
+    }
+});
+AddCommand({
+    "Command": [ "printtargets", "printtarget", "pt" ],
+    "Arguments": [ { "target": "me" } ],
+    "Description": [ "Prints classnames of targets" ],
+    "Function": function(speaker, args, vars = null)
+    {
+        local i = 0;
+        foreach (target in GetTargets(speaker, args[0], TargetPlayers | TargetOther))
+            splitClientPrint(speaker, 3, STATUS + format("  %i \x01:  %s", i++, target.GetClassname()));
     }
 });
 
@@ -2162,7 +2266,8 @@ local function GetArgs(text, maxArgs = -1)
 
 function OnGameEvent_player_say(data)
 {
-    if (data.userid == null) return;
+    if (data.userid == null)
+        return;
 
     local speaker = GetPlayerFromUserID(data.userid);
     local message = data.text;
@@ -2235,10 +2340,12 @@ function OnGameEvent_player_say(data)
 local DeadPlayers = {};
 function OnGameEvent_player_death(data)
 {
-    local player = GetPlayerFromUserID(data.userid);
+    local target = GetPlayerFromUserID(data.userid);
+    if (target == null)
+        return;
 
-    if (player.GetHealth() <= 0) // feign
-        DeadPlayers[player] <- Time();
+    if (target.GetHealth() <= 0) // feign
+        DeadPlayers[target] <- Time();
 }
 local MaxAmmos = {};
 local function OnTimer()
@@ -2363,7 +2470,7 @@ local function OnTimer()
     {
         if (dict.Time + dict.Duration < Time())
         {
-            if (dict.Ent.GetClassname() == "player")
+            if (dict.Ent.IsPlayer())
                 dict.Ent.RemoveCustomAttribute(dict.Attribute);
             else
                 dict.Ent.RemoveAttribute(dict.Attribute);
@@ -2374,9 +2481,10 @@ local function OnTimer()
     foreach (index in toDelete)
         TimedAttributes.remove(index);
 
-    toDelete = []
-    foreach (index,dict in AtrCondEvents) {
-        if (dict.Ent == null)
+    toDelete = [];
+    foreach (index,dict in AtrCondEvents)
+    {
+        if (!dict.Ent)
             toDelete.append(index);
     }
     toDelete.reverse();
