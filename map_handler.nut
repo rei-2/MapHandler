@@ -14,6 +14,10 @@ local EVENT = "\x07ffff80";
 local PERMISSION = "\x07800000";
 local ERROR = "\x07ff0000";
 
+local TARGET_PLAYER = 1 << 0;
+local TARGET_WEAPON = 1 << 1;
+local TARGET_OTHER = 1 << 2;
+
 local BotSpawnDefault = false;
 local AllowGiveWeapon = false;
 
@@ -206,6 +210,7 @@ ClearGameEventCallbacks();
 
 local Commands = [];
 local CmdVars = {};
+local Targets = {};
 local function AddCommand(commandInfo)
 {
     if ("Variables" in commandInfo)
@@ -214,23 +219,70 @@ local function AddCommand(commandInfo)
         delete commandInfo.Variables;
     }
     if (!("Requirement" in commandInfo))
-        commandInfo["Requirement"] <- 1;
+        commandInfo["Requirement"] <- GIVEN_PERMISSION;
     Commands.append(commandInfo);
 }
+local function AddTarget(targetInfo)
+{
+    local regex = targetInfo.String;
+    delete targetInfo.String;
+    targetInfo.Regex <- regexp(format("\\b%s\\b", regex));
+    if (typeof targetInfo.Function == "string")
+        targetInfo.Function = Targets[targetInfo.Function].Function;
+    if (!("Type" in targetInfo))
+        targetInfo["Type"] <- TARGET_PLAYER;
+    Targets[regex] <- targetInfo;
+}
 
-local specialCases = {
-    "me": function(speaker)
+local function GetTargetCases(speaker, str, flags = TARGET_PLAYER)
+{
+    local targets = null;
+    foreach (_,info in Targets)
+    {
+        if (!(flags & info.Type))
+            continue;
+
+        local matches = info.Regex.capture(str);
+        if (matches)
+        {
+            matches.remove(0);
+            for (local i = 0; i < matches.len(); i++)
+                matches[i] = str.slice(matches[i].begin, matches[i].end);
+            targets = info.Function(speaker, matches);
+            break;
+        }
+    }
+    if (!targets)
+    {
+        targets = [];
+        local ent; while (ent = Entities.FindByClassname(ent, "player"))
+        {
+            if (GetPlayerName(ent).tolower().find(str) == 0)
+                targets.append(ent);
+        }
+    }
+    return targets;
+}
+AddTarget({
+    "String": "me",
+    "Function": function(speaker, args)
     {
         return [ speaker ];
-    },
-    "all": function(speaker)
+    }
+});
+AddTarget({
+    "String": "all",
+    "Function": function(speaker, args)
     {
         local players = [];
         for (local ent; ent = Entities.FindByClassname(ent, "player");)
             players.append(ent);
         return players;
-    },
-    "others": function(speaker)
+    }
+});
+AddTarget({
+    "String": "others",
+    "Function": function(speaker, args)
     {
         local players = [];
         for (local ent; ent = Entities.FindByClassname(ent, "player");)
@@ -239,8 +291,11 @@ local specialCases = {
                 players.append(ent);
         }
         return players;
-    },
-    "players": function(speaker)
+    }
+});
+AddTarget({
+    "String": "players",
+    "Function": function(speaker, args)
     {
         local players = [];
         for (local ent; ent = Entities.FindByClassname(ent, "player");)
@@ -249,8 +304,11 @@ local specialCases = {
                 players.append(ent);
         }
         return players;
-    },
-    "bots": function(speaker)
+    }
+});
+AddTarget({
+    "String": "bots",
+    "Function": function(speaker, args)
     {
         local players = [];
         for (local ent; ent = Entities.FindByClassname(ent, "player");)
@@ -259,8 +317,11 @@ local specialCases = {
                 players.append(ent);
         }
         return players;
-    },
-    "blu": function(speaker)
+    }
+});
+AddTarget({
+    "String": "blu",
+    "Function": function(speaker, args)
     {
         local players = [];
         for (local ent; ent = Entities.FindByClassname(ent, "player");)
@@ -269,8 +330,15 @@ local specialCases = {
                 players.append(ent);
         }
         return players;
-    },
-    "red": function(speaker)
+    }
+});
+AddTarget({
+    "String": "blue",
+    "Function": "blu"
+});
+AddTarget({
+    "String": "red",
+    "Function": function(speaker, args)
     {
         local players = [];
         for (local ent; ent = Entities.FindByClassname(ent, "player");)
@@ -279,8 +347,11 @@ local specialCases = {
                 players.append(ent);
         }
         return players;
-    },
-    "team": function(speaker)
+    }
+});
+AddTarget({
+    "String": "team",
+    "Function": function(speaker, args)
     {
         local players = [];
         for (local ent; ent = Entities.FindByClassname(ent, "player");)
@@ -289,8 +360,11 @@ local specialCases = {
                 players.append(ent);
         }
         return players;
-    },
-    "enemies": function(speaker)
+    }
+});
+AddTarget({
+    "String": "enemies",
+    "Function": function(speaker, args)
     {
         local players = [];
         for (local ent; ent = Entities.FindByClassname(ent, "player");)
@@ -299,18 +373,24 @@ local specialCases = {
                 players.append(ent);
         }
         return players;
-    },
-    "#_": function(speaker, text)
+    }
+});
+AddTarget({
+    "String": "#(\\d*)",
+    "Function": function(speaker, args)
     {
         local players = [];
         for (local ent; ent = Entities.FindByClassname(ent, "player");)
             players.append(ent);
         local selection = [];
-        for (local i = 1; i <= text.tointeger(); i++)
+        for (local i = 1; i <= args[0].tointeger(); i++)
             selection.append(players[RandomInt(0, players.len() - 1)]);
         return selection;
-    },
-    "*_": function(speaker, text)
+    }
+});
+AddTarget({
+    "String": "\\*(\\d*)",
+    "Function": function(speaker, args)
     {
         local players = [];
         for (local ent; ent = Entities.FindByClassname(ent, "player");)
@@ -319,21 +399,27 @@ local specialCases = {
                 players.append(ent);
         }
         local selection = [];
-        for (local i = 1; i <= text.tointeger(); i++)
+        for (local i = 1; i <= args[0].tointeger(); i++)
             selection.append(players[RandomInt(0, players.len() - 1)]);
         return selection;
-    },
-    "<_": function(speaker, text)
+    }
+});
+AddTarget({
+    "String": "<(\\d*)",
+    "Function": function(speaker, args)
     {
         local players = [];
         for (local ent; ent = Entities.FindByClassname(ent, "player");)
         {
-            if (speaker != ent && (speaker.GetOrigin() - ent.GetOrigin()).Length() < text.tofloat() && ent.IsAlive())
+            if (speaker != ent && (speaker.GetOrigin() - ent.GetOrigin()).Length() < args[0].tofloat() && ent.IsAlive())
                 players.append(ent);
         }
         return players;
-    },
-    "id=_": function(speaker, text)
+    }
+});
+AddTarget({
+    "String": "id=(\\d*)",
+    "Function": function(speaker, args)
     {
         for (local ent; ent = Entities.FindByClassname(ent, "player");)
         {
@@ -341,29 +427,75 @@ local specialCases = {
                 return [ ent ];
         }
         return [];
+    }
+});
+AddTarget({
+    "String": "uid=(\\d*)",
+    "Function": "id=(\\d*)"
+});
+AddTarget({
+    "String": "pw:(.*)",
+    "Function": function(speaker, args)
+    {
+        local entities = [];
+        foreach (ent in GetTargetCases(speaker, args[0]))
+        {
+            if (ent = NetProps.GetPropEntity(ent, "m_hActiveWeapon"))
+                entities.append(ent);
+        }
+        return entities;
     },
-
-    "entities": function(speaker)
+    "Type": TARGET_WEAPON
+});
+AddTarget({
+    "String": "pw:(\\d*):(.*)",
+    "Function": function(speaker, args)
+    {
+        local entities = [];
+        foreach (ent in GetTargetCases(speaker, args[1]))
+        {
+            if (ent = NetProps.GetPropEntityArray(ent, "m_hMyWeapons", args[0].tointeger()))
+                entities.append(ent);
+        }
+        return entities;
+    },
+    "Type": TARGET_WEAPON
+});
+AddTarget({
+    "String": "entities",
+    "Function": function(speaker, args)
     {
         local entities = [];
         for (local ent = Entities.First(); ent; ent = Entities.Next(ent))
             entities.append(ent);
         return entities;
     },
-    "e:_": function(speaker, text)
+    "Type": TARGET_OTHER
+});
+AddTarget({
+    "String": "e:(.*)",
+    "Function": function(speaker, args)
     {
-        for (local ent; ent = Entities.FindByClassname(ent, text);)
+        for (local ent; ent = Entities.FindByClassname(ent, args[0]);)
             return [ ent ];
         return [];
     },
-    "es:_": function(speaker, text)
+    "Type": TARGET_OTHER
+});
+AddTarget({
+    "String": "es:(.*)",
+    "Function": function(speaker, args)
     {
         local entities = [];
-        for (local ent; ent = Entities.FindByClassname(ent, text);)
+        for (local ent; ent = Entities.FindByClassname(ent, args[0]);)
             entities.append(ent);
         return entities;
     },
-    "!picker": function(speaker)
+    "Type": TARGET_OTHER
+});
+AddTarget({
+    "String": "!picker",
+    "Function": function(speaker, args)
     {
         local start = speaker.EyePosition();
         local dir = speaker.EyeAngles().Forward();
@@ -375,75 +507,53 @@ local specialCases = {
             "ignore": speaker,
             "mask": (0x1 | 0x4000 | 0x2000000 | 0x2 | 0x4000000 | 0x40000000 | 0x8) //MASK_SHOT | CONTENTS_GRATE
         };
-        if (!TraceLineEx(trace)) throw("Trace error. ");
+        if (!TraceLineEx(trace))
+            throw("Trace error. ");
 
         if (trace.hit)
             return [ trace.enthit ];
         return [];
-    }
-}
-specialCases["blue"] <- specialCases["blu"];
-specialCases["uid=_"] <- specialCases["id=_"];
+    },
+    "Type": TARGET_OTHER
+});
+local Picked = [];
+AddTarget({
+    "String": "!pick",
+    "Function": function(speaker, args)
+    {
+        local entities = [];
+        foreach (ent in Picked)
+        {
+            if (ent)
+                entities.append(ent);
+        }
+        return entities;
+    },
+    "Type": TARGET_OTHER
+})
+AddTarget({
+    "String": "!picked",
+    "Function": "!pick"
+});
 
-local TargetPlayers = 1 << 0;
-local TargetOther = 1 << 1;
-local function GetTargets(speaker, text, flags = TargetPlayers)
+local function GetTargets(speaker, text, flags = TARGET_PLAYER)
 {
     local list = split(text.tolower(), ",");
     local add = [], sub = [];
 
-    foreach (plrStr in list)
+    foreach (targetStr in list)
     {
         local to = add;
-        if (plrStr.find("+") == 0)
-            plrStr = replace(plrStr, "+", "");
-        else if (plrStr.find("-") == 0)
-            to = sub, plrStr = replace(plrStr, "-", "");
+        if (targetStr.find("+") == 0)
+            targetStr = replace(targetStr, "+", "");
+        else if (targetStr.find("-") == 0)
+            to = sub, targetStr = replace(targetStr, "-", "");
 
-        local caseFound = false;
-        foreach (str,func in specialCases)
+        local targets = GetTargetCases(speaker, targetStr, flags);
+        foreach (target in targets)
         {
-            local flag = TargetPlayers;
-            switch (str)
-            {
-            case "entities":
-            case "e:_":
-            case "es:_":
-            case "!picker": flag = TargetOther;
-            }
-            if (!(flags & flag))
-                continue;
-
-            if (str.find("_") != null && plrStr.find(replace(str, "_", "")) == 0)
-            {
-                try
-                {
-                    foreach (target in func(speaker, plrStr.slice(replace(str, "_", "").len(), plrStr.len())))
-                    {
-                        if (to.find(target) == null)
-                            to.append(target);
-                    }
-                    caseFound = true;
-                }
-                catch (err) {}
-            }
-            if (plrStr == str && !caseFound)
-            {
-                caseFound = true;
-                foreach (target in func(speaker))
-                {
-                    if (to.find(target) == null)
-                        to.append(target);
-                }
-            }
-        }
-        if (!caseFound)
-        {
-            local ent; while (ent = Entities.FindByClassname(ent, "player"))
-            {
-                if (GetPlayerName(ent).tolower().find(plrStr) == 0 && to.find(ent) == null)
-                    to.append(ent);
-            }
+            if (to.find(target) == null)
+                to.append(target);
         }
     }
 
@@ -558,6 +668,18 @@ AddCommand({
     //"Requirement": 1 // permission needed to run command, defaulted to 1
 });
 AddCommand({
+    "Command": [ "pick" ],
+    "Arguments": [ { "entity": "!picker" } ],
+    "Description": [ "Store entities for later use" ],
+    "Function": function(speaker, args, vars = null)
+    {
+        if (args[0].tolower() != "none")
+            Picked = GetTargets(speaker, args[0], TARGET_PLAYER | TARGET_WEAPON | TARGET_OTHER);
+        else
+            Picked = [];
+    }
+});
+AddCommand({
     "Command": [ "getsteamid", "steamid", "getid", "id", "getname", "name" ],
     "Arguments": [ { "player": "me" } ],
     "Description": [ "Gets a player's Steam ID" ],
@@ -653,11 +775,13 @@ AddCommand({
             local velocity = target.GetVelocity();
             local angles = target.EyeAngles();
             local moveType = target.GetMoveType();
+            local fov = NetProps.GetPropInt(target, "m_iFOV");
             target.ForceRespawn();
             target.SetAbsOrigin(origin);
             target.SetVelocity(velocity);
             target.SnapEyeAngles(angles);
             target.SetMoveType(moveType, 0);
+            NetProps.SetPropInt(target, "m_iFOV", fov);
         }
     }
 });
@@ -938,7 +1062,7 @@ AddCommand({
 AddCommand({
     "Command": [ "teleport", "tp" ],
     "Arguments": [ { "from": "me" }, { "to": "me" }, { "offset": "false" } ],
-    "Description": [ "Teleports players to another player", "from: '<player>'", "to: '<player>', '__cursor' / '__bounds' / '__plane' / '__point' - your aim position, with varying bounds (__plane and __point may get stuck), 'vector(x, y, z)' - some position" ],
+    "Description": [ "Teleports players to another player", "from: '<player>'", "to: '<player>', '__cursor' - your aim position, 'vector(x, y, z)' - some position" ],
     "Function": function(speaker, args, vars = null)
     {
         local pos = Vector(), offset = Vector();
@@ -946,76 +1070,22 @@ AddCommand({
         switch (args[1])
         {
         case "__cursor":
-            local start = speaker.EyePosition();
-            local dir = speaker.EyeAngles().Forward();
-            local end = start + dir * 32768;
-
-            local mins = Vector(-24, -24, 0), maxs = Vector(24, 24, 82);
-
             local trace = {
-                "start": start,
-                "end": end,
                 "ignore": speaker,
-                "hullmin": mins,
-                "hullmax": maxs,
+                "hullmin": Vector(-24, -24, 0),
+                "hullmax": Vector(24, 24, 82),
                 "mask": (0x1 | 0x4000 | 0x10000 | 0x2 | 0x2000000 | 0x8) //MASK_PLAYERSOLID
             };
-            if (!TraceHull(trace)) throw("Trace error. ");
 
-            pos = trace.pos;
-            break;
-        case "__bounds":
-            local diff = Vector(0, 0, speaker.EyePosition().z - speaker.GetOrigin().z);
-
-            local start = speaker.EyePosition();
-            local dir = speaker.EyeAngles().Forward();
-            local end = start + dir * 32768;
-
-            local mins = Vector(-24, -24, 0) - diff, maxs = Vector(24, 24, 82) - diff;
-
-            local trace = {
-                "start": start,
-                "end": end,
-                "ignore": speaker,
-                "hullmin": mins,
-                "hullmax": maxs,
-                "mask": (0x1 | 0x4000 | 0x10000 | 0x2 | 0x2000000 | 0x8) //MASK_PLAYERSOLID
-            };
-            if (!TraceHull(trace)) throw("Trace error. ");
-
-            pos = trace.pos - diff;
-            break;
-        case "__plane":
-            local start = speaker.EyePosition();
-            local dir = speaker.EyeAngles().Forward();
-            local end = start + dir * 32768;
-
-            local mins = Vector(-24, -24, 0), maxs = Vector(24, 24, 0);
-
-            local trace = {
-                "start": start,
-                "end": end,
-                "ignore": speaker,
-                "hullmin": mins,
-                "hullmax": maxs,
-                "mask": (0x1 | 0x4000 | 0x10000 | 0x2 | 0x2000000 | 0x8) //MASK_PLAYERSOLID
-            };
-            if (!TraceHull(trace)) throw("Trace error. ");
-
-            pos = trace.pos;
-            break;
-        case "__point":
-            local start = speaker.EyePosition();
-            local dir = speaker.EyeAngles().Forward();
-            local end = start + dir * 32768;
-
-            local trace = {
-                "start": start,
-                "end": end,
-                "ignore": speaker,
-                "mask": (0x1 | 0x4000 | 0x10000 | 0x2 | 0x2000000 | 0x8) //MASK_PLAYERSOLID
-            };
-            if (!TraceLineEx(trace)) throw("Trace error. ");
+            local start = speaker.GetOrigin();
+            foreach (end in [ speaker.EyePosition(), speaker.EyePosition() + speaker.EyeAngles().Forward() * 32768 ])
+            {
+                trace["start"] <- start;
+                trace["end"] <- end;
+                if (!TraceHull(trace))
+                    throw("Trace error. ");
+                start = trace.pos;
+            }
 
             pos = trace.pos;
             break;
@@ -1293,11 +1363,13 @@ AddCommand({
                 local velocity = target.GetVelocity();
                 local angles = target.EyeAngles();
                 local moveType = target.GetMoveType();
+                local fov = NetProps.GetPropInt(target, "m_iFOV");
                 target.ForceRespawn();
                 target.SetAbsOrigin(origin);
                 target.SetVelocity(velocity);
                 target.SnapEyeAngles(angles);
                 target.SetMoveType(moveType, 0);
+                NetProps.SetPropInt(target, "m_iFOV", fov);
             }
         }
     }
@@ -1519,7 +1591,8 @@ AddCommand({
             "end": end,
             "ignore": speaker
         };
-        if (!TraceLineEx(trace)) throw("TraceLineEx error. ");
+        if (!TraceLineEx(trace))
+            throw("Trace error. ");
 
         foreach (target in GetTargets(speaker, args[3]))
         {
@@ -1533,7 +1606,7 @@ AddCommand({
                 "ignore": target
             };
             if (!TraceLineEx(_trace))
-                throw("TraceLineEx error. ");
+                throw("Trace error. ");
             if (_trace.hit)
                 continue;
 
@@ -1547,36 +1620,34 @@ AddCommand({
 local TimedAttributes = [];
 AddCommand({
     "Command": [ "attribute", "atr" ],
-    "Arguments": [ { "player": "me" }, { "slot": "self" }, { "attribute": null }, { "value": "__get" }, { "duration": "infinite" } ],
+    "Arguments": [ { "player": "me" }, { "attribute": null }, { "value": "__get" }, { "duration": "infinite" } ],
     "Description": [ "Gives the player/weapon a custom attribute", "slot: 'self' - applied to you, '0' - primary, '1' - secondary, '2' - tertiary, etc (conditions can only be applied to player)", "attribute: '<string>' - list at https://wiki.teamfortress.com/wiki/List_of_item_attributes" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (target in GetTargets(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0], TARGET_PLAYER | TARGET_WEAPON))
         {
-            local ent = target;
-            if (args[1] != "self")
-                ent = NetProps.GetPropEntityArray(ent, "m_hMyWeapons", args[1].tointeger());
-            if (!ent)
-                continue;
-
-            if (ent.IsPlayer()) // rework to use IsPlayer, do ent stuff beforehand, do for all instances of this
+            if (target.IsPlayer())
             {
-                if (args[3] != "__get")
-                    ent.AddCustomAttribute(args[2], args[3].tofloat(), -1);
+                if (args[2] == "__get")
+                    splitClientPrint(speaker, 3, STATUS + format("  Attribute %s is %.9g", args[1], target.GetCustomAttribute(args[1], -2147483647)));
+                else if (args[2] == "__remove")
+                    target.RemoveCustomAttribute(args[1]);
                 else
-                    splitClientPrint(speaker, 3, STATUS + format("  Attribute %s is %.9g", args[2], ent.GetCustomAttribute(args[2], -2147483647)));
+                    target.AddCustomAttribute(args[1], args[2].tofloat(), -1);
             }
             else
             {
-                if (args[3] != "__get")
-                    ent.AddAttribute(args[2], args[3].tofloat(), -1);
+                if (args[2] == "__get")
+                    splitClientPrint(speaker, 3, STATUS + format("  Attribute %s is %.9g", args[1], target.GetAttribute(args[1], -2147483647)));
+                else if (args[2] == "__remove")
+                    target.RemoveAttribute(args[1]);
                 else
-                    splitClientPrint(speaker, 3, STATUS + format("  Attribute %s is %.9g", args[2], ent.GetAttribute(args[2], -2147483647)));
+                    target.AddAttribute(args[1], args[2].tofloat(), -1);
             }
-            if (args[4] != "infinite" && ent != null)
+            if (args[3] != "infinite" && target != null)
             {
                 TimedAttributes.append({
-                    "Ent": ent
+                    "Entity": target
                     "Attribute": dict.AtrCond,
                     "Time": Time(),
                     "Duration": dict.Duration.tofloat()
@@ -1602,56 +1673,53 @@ AddCommand({
 });
 AddCommand({
     "Command": [ "netvar", "netprop", "net" ],
-    "Arguments": [ { "target": "me" }, { "slot": "self" }, { "netvar": null }, { "value": "__get" } ],
+    "Arguments": [ { "target": "me" }, { "netvar": null }, { "value": "__get" } ],
     "Description": [ "Sets or gets the netvar of the target", "slot: 'self' - applied to you, '0' - primary, '1' - secondary, '2' - tertiary, etc", "netprop: '<string>' - list at https://jackz.me/netprops/tf2/netprops / https://sigwiki.potato.tf/index.php/Entity_Properties" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (target in GetTargets(speaker, args[0], TargetPlayers | TargetOther))
+        foreach (target in GetTargets(speaker, args[0], TARGET_PLAYER | TARGET_WEAPON | TARGET_OTHER))
         {
-            local ent = target;
-            if (args[1] != "self")
-                ent = NetProps.GetPropEntityArray(ent, "m_hMyWeapons", args[1].tointeger());
-            if (!ent)
-                continue;
-
-            local type = NetProps.GetPropType(ent, args[2]);
-            local size = max(NetProps.GetPropArraySize(ent, args[2]), 1);
+            local type = NetProps.GetPropType(target, args[1]);
+            local size = max(NetProps.GetPropArraySize(target, args[1]), 1);
             if (type == null)
+            {
+                splitClientPrint(speaker, 3, ERROR + format("  Netprop %s doesn't exist or can't be accessed", args[1]));
                 continue;
+            }
 
-            if (args[3] != "__get")
+            if (args[2] != "__get")
             {
                 switch (type)
                 {
                 case "bool":
-                    local text = replace(args[3], " ", "");
+                    local text = replace(args[2], " ", "");
                     local values = split(text, ",");
                     for (local i = 0; i < values.len() && i < size; i++)
                     {
                         if (values[i] != "_")
-                            NetProps.SetPropBoolArray(ent, args[2], tobool(values[i]), i);
+                            NetProps.SetPropBoolArray(target, args[1], tobool(values[i]), i);
                     }
                     break;
                 case "integer":
-                    local text = replace(args[3], " ", "");
+                    local text = replace(args[2], " ", "");
                     local values = split(text, ",");
                     for (local i = 0; i < values.len() && i < size; i++)
                     {
                         if (values[i] != "_")
-                            NetProps.SetPropIntArray(ent, args[2], values[i].tointeger(), i);
+                            NetProps.SetPropIntArray(target, args[1], values[i].tointeger(), i);
                     }
                     break;
                 case "float":
-                    local text = replace(args[3], " ", "");
+                    local text = replace(args[2], " ", "");
                     local values = split(text, ",");
                     for (local i = 0; i < values.len() && i < size; i++)
                     {
                         if (values[i] != "_")
-                            NetProps.SetPropFloatArray(ent, args[2], values[i].tofloat(), i);
+                            NetProps.SetPropFloatArray(target, args[1], values[i].tofloat(), i);
                     }
                     break;
                 case "string":
-                    local text = replace(args[3], "', '", "','");
+                    local text = replace(args[2], "', '", "','");
                     local values = splitAt(text, findAllOutsideOf(text, ",", "'", "'"));
                     for (local i = 0; i < values.len() && i < size; i++)
                     {
@@ -1660,13 +1728,13 @@ AddCommand({
                             local value = values[i];
                             if (value.len() && value[0].tochar() == "'" && value[value.len() - 1].tochar() == "'")
                                 value = value.slice(1, value.len() - 1);
-                            NetProps.SetPropStringArray(ent, args[2], value, i);
+                            NetProps.SetPropStringArray(target, args[1], value, i);
                         }
                     }
                     break;
                 //case "table":
                 case "Vector":
-                    local text = replace(args[3], " ", "");
+                    local text = replace(args[2], " ", "");
                     text = replace(text, "vector(", "("); text = replace(text, "v(", "(");
                     text = replace(text, "qangle(", "("); text = replace(text, "q(", "(");
                     local values = splitAt(text, findAllOutsideOf(text, ",", "(", ")"));
@@ -1680,17 +1748,17 @@ AddCommand({
                             if (vector.len() != 3)
                                 continue;
 
-                            NetProps.SetPropVectorArray(ent, args[2], Vector(vector[0].tofloat(), vector[1].tofloat(), vector[2].tofloat()), i);
+                            NetProps.SetPropVectorArray(target, args[1], Vector(vector[0].tofloat(), vector[1].tofloat(), vector[2].tofloat()), i);
                         }
                     }
                     break;
                 case "instance":
-                    local text = replace(args[3], " ", "");
+                    local text = replace(args[2], " ", "");
                     local values = split(text, ",");
                     for (local i = 0; i < values.len() && i < size; i++)
                     {
                         if (values[i] != "_")
-                            NetProps.SetPropEntityArray(ent, args[2], EntIndexToHScript(values[i].tointeger()), i);
+                            NetProps.SetPropEntityArray(target, args[1], EntIndexToHScript(values[i].tointeger()), i);
                     }
                     break;
                 }
@@ -1702,79 +1770,100 @@ AddCommand({
                 {
                 case "bool":
                     for (local i = 0; i < size; i++)
-                        data += format("%s%s", data != "" ? ", " : "", NetProps.GetPropBoolArray(ent, args[2], i) ? "true" : "false");
+                        data += format("%s%s", data != "" ? ", " : "", NetProps.GetPropBoolArray(target, args[1], i) ? "true" : "false");
                     break;
                 case "integer":
                     for (local i = 0; i < size; i++)
-                        data += format("%s%d", data != "" ? ", " : "", NetProps.GetPropIntArray(ent, args[2], i));
+                        data += format("%s%d", data != "" ? ", " : "", NetProps.GetPropIntArray(target, args[1], i));
                     break;
                 case "float":
                     for (local i = 0; i < size; i++)
-                        data += format("%s%.9g", data != "" ? ", " : "", NetProps.GetPropFloatArray(ent, args[2], i));
+                        data += format("%s%.9g", data != "" ? ", " : "", NetProps.GetPropFloatArray(target, args[1], i));
                     break;
                 case "string":
                     for (local i = 0; i < size; i++)
-                        data += format("%s\"%s\"", data != "" ? ", " : "", NetProps.GetPropStringArray(ent, args[2], i));
+                        data += format("%s\"%s\"", data != "" ? ", " : "", NetProps.GetPropStringArray(target, args[1], i));
                     break;
                 //case "table":
                 case "Vector":
                     for (local i = 0; i < size; i++)
                     {
-                        local vec = NetProps.GetPropVectorArray(ent, args[2], i);
+                        local vec = NetProps.GetPropVectorArray(target, args[1], i);
                         data += format("%svector(%.9g, %.9g, %.9g)", data != "" ? ", " : "", vec.x, vec.y, vec.z);
                     }
                     break;
                 case "instance":
                     for (local i = 0; i < size; i++)
-                        data += format("%s%d", data != "" ? ", " : "", NetProps.GetPropEntityArray(ent, args[2], i).entindex());
+                        data += format("%s%d", data != "" ? ", " : "", NetProps.GetPropEntityArray(target, args[1], i).entindex());
                     break;
                 }
-                splitClientPrint(speaker, 3, STATUS + format("  %s (%s, %d) \x01:  %s", args[2], type, size, data));
+                splitClientPrint(speaker, 3, STATUS + format("  %s (%s, %d) \x01:  %s", args[1], type, size, data));
             }
         }
     }
 });
 AddCommand({
-    "Command": [ "fire" ],
-    "Arguments": [ { "target": "me" }, { "slot": "self" }, { "input": null }, { "param": "" } ],
-    "Description": [ "Fires event on the target" ],
+    "Command": [ "getmodel" ],
+    "Arguments": [ { "target": "me" } ],
+    "Description": [ "Gets model of the target" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (target in GetTargets(speaker, args[0], TargetPlayers | TargetOther))
+        foreach (target in GetTargets(speaker, args[0], TARGET_PLAYER | TARGET_WEAPON | TARGET_OTHER))
+            splitClientPrint(speaker, 3, STATUS + format("  Model \x01:  %s", target.GetModelName()));
+    }
+});
+AddCommand({
+    "Command": [ "setmodel" ],
+    "Arguments": [ { "target": "me" }, { "model": null } ],
+    "Description": [ "Sets model of the target" ],
+    "Function": function(speaker, args, vars = null)
+    {
+        foreach (target in GetTargets(speaker, args[0], TARGET_PLAYER | TARGET_WEAPON | TARGET_OTHER))
         {
-            local ent = target;
-            if (args[1] != "self")
-                ent = NetProps.GetPropEntityArray(ent, "m_hMyWeapons", args[1].tointeger());
-            if (!ent)
-                continue;
-
-            ent.AcceptInput(args[2], args[3], null, null);
+            if (target.IsPlayer())
+                target.SetCustomModel(args[1]);
+            else
+                target.SetModelSimple(args[1]);
         }
     }
 });
 AddCommand({
+    "Command": [ "setanimatedmodel", "setanimmodel" ],
+    "Arguments": [ { "player": "me" }, { "model": null } ],
+    "Description": [ "Sets animated model of the player" ],
+    "Function": function(speaker, args, vars = null)
+    {
+        foreach (target in GetTargets(speaker, args[0], TARGET_PLAYER))
+            target.SetCustomModelWithClassAnimations(args[1]);
+    }
+});
+AddCommand({
+    "Command": [ "fire" ],
+    "Arguments": [ { "target": "me" }, { "input": null }, { "param": "" } ],
+    "Description": [ "Fires event on the target" ],
+    "Function": function(speaker, args, vars = null)
+    {
+        foreach (target in GetTargets(speaker, args[0], TARGET_PLAYER | TARGET_WEAPON | TARGET_OTHER))
+            target.AcceptInput(args[1], args[2], null, null);
+    }
+});
+AddCommand({
     "Command": [ "remove_attribute", "removeattribute", "rematr" ],
-    "Arguments": [ { "player": "me" }, { "slot": "self" }, { "atr": null } ],
+    "Arguments": [ { "player": "me" }, { "atr": null } ],
     "Description": [ "Removes the given attribute on a player/weapon" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (target in GetTargets(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0], TARGET_PLAYER | TARGET_WEAPON))
         {
-            local ent = target;
-            if (args[1] != "self")
-                ent = NetProps.GetPropEntityArray(ent, "m_hMyWeapons", args[1].tointeger());
-            if (!ent)
-                continue;
-
-            if (ent.IsPlayer())
-                ent.RemoveCustomAttribute(args[2]);
+            if (target.IsPlayer())
+                target.RemoveCustomAttribute(args[1]);
             else
-                ent.RemoveAttribute(args[2]);
+                target.RemoveAttribute(args[1]);
 
             local toDelete = [];
             foreach (index,dict in TimedAttributes)
             {
-                if (dict.Ent == ent)
+                if (dict.Entity == target)
                     toDelete.append(index);
             }
             toDelete.reverse();
@@ -1807,20 +1896,16 @@ function OnScriptHook_OnTakeDamage(data)
 
     foreach (_,dict in AtrCondEvents)
     {
-        if (dict.Player != attacker)
+        if (dict.Entity != attacker || dict.Entity != weapon)
             continue;
 
         try
         {
             local target;
             if (dict.Target == "self" || dict.When == "kill")
-                target = attacker;
+                target = dict.Entity;
             else if (dict.Target == "victim" && victim.GetTeam() != attacker.GetTeam())
                 target = victim;
-
-            local ent = target;
-            if (dict.Slot != "self")
-                ent = NetProps.GetPropEntityArray(ent, "m_hMyWeapons", dict.Slot.tointeger());
 
             local conditionMet = false;
             if (dict.When == "hit")
@@ -1837,16 +1922,16 @@ function OnScriptHook_OnTakeDamage(data)
                 else
                     target.AddCondEx(dict.AtrCond.tointeger(), dict.Duration.tofloat(), target);
             }
-            catch(err)
+            catch (err)
             {
-                if (ent.IsPlayer())
-                    ent.AddCustomAttribute(dict.AtrCond, dict.Value.tofloat(), -1);
+                if (target.IsPlayer())
+                    target.AddCustomAttribute(dict.AtrCond, dict.Value.tofloat(), -1);
                 else
-                    ent.AddAttribute(dict.AtrCond, dict.Value.tofloat(), -1);
+                    target.AddAttribute(dict.AtrCond, dict.Value.tofloat(), -1);
                 if (dict.Duration != "infinite")
                 {
                     TimedAttributes.append({
-                        "Ent": ent
+                        "Entity": target
                         "Attribute": dict.AtrCond,
                         "Time": Time(),
                         "Duration": dict.Duration.tofloat()
@@ -1859,20 +1944,19 @@ function OnScriptHook_OnTakeDamage(data)
 }
 AddCommand({
     "Command": [ "attribute_event", "attributeevent", "atrevent" ],
-    "Arguments": [ { "player": "me" }, { "slot": "self" }, { "attribute": null }, { "value": "1" }, { "duration": "infinite" }, { "target": "self" }, { "when": "kill" } ],
+    "Arguments": [ { "player": "me" }, { "attribute": null }, { "value": "1" }, { "duration": "infinite" }, { "target": "self" }, { "when": "kill" } ],
     "Description": [ "Gives a player an attribute/condition upon hit/kill", "slot: 'self' - applied to the player, '0' - primary, '1' - secondary, '2' - tertiary, etc (conditions can only be applied to player)", "attribute: '<string>' - for attributes, '<integer>' - for conditions", "target: 'self' - for things to be applied to you, 'victim' - for things to be applied to the victim", "when: 'kill' - to be applied on kill, 'hit' - to be applied on hit" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (target in GetTargets(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0], TARGET_PLAYER | TARGET_WEAPON))
         {
             AtrCondEvents.append({
-                "Player": target,
-                "AtrCond": args[2].tolower(),
-                "Value": args[3].tofloat(),
-                "Duration": args[4],
-                "Target": args[5].tolower(),
-                "Slot": args[1].tolower(),
-                "When": args[6].tolower()
+                "Entity": target,
+                "AtrCond": args[1].tolower(),
+                "Value": args[2].tofloat(),
+                "Duration": args[3],
+                "Target": args[4].tolower(),
+                "When": args[5].tolower()
             });
         }
     }
@@ -1886,12 +1970,11 @@ AddCommand({
         foreach (target in GetTargets(speaker, args[0]))
         {
             AtrCondEvents.append({
-                "Player": target,
+                "Entity": target,
                 "AtrCond": args[1].tolower(),
                 "Value": 1,
                 "Duration": args[2],
                 "Target": args[3].tolower(),
-                "Slot": "self",
                 "When": args[4].tolower()
             });
         }
@@ -1899,22 +1982,16 @@ AddCommand({
 });
 AddCommand({
     "Command": [ "remove_attribute_event", "removeattributeevent", "rematrevent" ],
-    "Arguments": [ { "player": "me" }, { "slot": "self" }, { "attribute": "all" } ],
+    "Arguments": [ { "player": "me" }, { "attribute": "all" } ],
     "Description": [ "Removes a player/weapon event" ],
     "Function": function(speaker, args, vars = null)
     {
-        foreach (target in GetTargets(speaker, args[0]))
+        foreach (target in GetTargets(speaker, args[0], TARGET_PLAYER | TARGET_WEAPON))
         {
-            local ent = target;
-            if (args[1] != "self")
-                ent = NetProps.GetPropEntityArray(ent, "m_hMyWeapons", args[1].tointeger());
-            if (!ent)
-                continue;
-
             local toDelete = [];
             foreach (index,dict in AtrCondEvents)
             {
-                if (dict.Ent == ent && (args[1] == "all" || dict.Slot == args[1]) && (args[2] == "all" || dict.AtrCond == args[2]))
+                if (dict.Entity == target && (args[1] == "all" || dict.AtrCond == args[1]))
                     toDelete.append(index);
             }
             toDelete.reverse();
@@ -1931,12 +2008,10 @@ AddCommand({
     {
         foreach (target in GetTargets(speaker, args[0]))
         {
-            local ent = target;
-
             local toDelete = [];
             foreach (index,dict in AtrCondEvents)
             {
-                if (dict.Ent == ent && (args[1] == "all" || dict.Slot == args[1]) && (args[2] == "all" || dict.AtrCond == args[2]))
+                if (dict.Entity == target && (args[1] == "all" || dict.AtrCond == args[1]))
                     toDelete.append(index);
             }
             toDelete.reverse();
@@ -2231,7 +2306,7 @@ AddCommand({
     "Function": function(speaker, args, vars = null)
     {
         local i = 0;
-        foreach (target in GetTargets(speaker, args[0], TargetPlayers | TargetOther))
+        foreach (target in GetTargets(speaker, args[0], TARGET_PLAYER | TARGET_WEAPON | TARGET_OTHER))
             splitClientPrint(speaker, 3, STATUS + format("  %i \x01:  %s", i++, target.GetClassname()));
     }
 });
@@ -2378,7 +2453,8 @@ local function OnTimer()
         // not using player.Regenerate as that seems somewhat bloated
         local player; while (player = Entities.FindByClassname(player, "player"))
         {
-            if (CmdVars.regen_requirement.Requirement > GetPlayerPermission(player))
+            if (!player.IsAlive() || player.InCond(77 /*TF_COND_HALLOWEEN_GHOST_MODE*/)
+                || CmdVars.regen_requirement.Requirement > GetPlayerPermission(player))
                 continue;
 
             if (CmdVars.health_regen.Enabled)
@@ -2445,7 +2521,7 @@ local function OnTimer()
                 NetProps.SetPropFloatArray(player, "m_Shared.m_flItemChargeMeter", 100, 1);
 
                 // metal
-                NetProps.SetPropIntArray(player, "m_iAmmo", 200, 3);
+                NetProps.SetPropIntArray(player, "m_iAmmo", max(NetProps.GetPropIntArray(player, "m_iAmmo", 3), player.GetCustomAttribute("maxammo metal increased", 200)), 3);
 
                 // cloak
                 NetProps.SetPropFloat(player, "m_Shared.m_flCloakMeter", 100);
@@ -2468,12 +2544,14 @@ local function OnTimer()
     local toDelete = [];
     foreach (index,dict in TimedAttributes)
     {
-        if (dict.Time + dict.Duration < Time())
+        if (!dict.Entity)
+            toDelete.append(index);
+        else if (dict.Time + dict.Duration < Time())
         {
-            if (dict.Ent.IsPlayer())
-                dict.Ent.RemoveCustomAttribute(dict.Attribute);
+            if (dict.Entity.IsPlayer())
+                dict.Entity.RemoveCustomAttribute(dict.Attribute);
             else
-                dict.Ent.RemoveAttribute(dict.Attribute);
+                dict.Entity.RemoveAttribute(dict.Attribute);
             toDelete.append(index);
         }
     }
@@ -2484,7 +2562,7 @@ local function OnTimer()
     toDelete = [];
     foreach (index,dict in AtrCondEvents)
     {
-        if (!dict.Ent)
+        if (!dict.Entity)
             toDelete.append(index);
     }
     toDelete.reverse();
