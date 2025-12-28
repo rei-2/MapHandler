@@ -376,7 +376,7 @@ AddTarget({
     }
 });
 AddTarget({
-    "String": "#(\\d*)",
+    "String": "#(\\d+)",
     "Function": function(speaker, args)
     {
         local players = [];
@@ -389,7 +389,7 @@ AddTarget({
     }
 });
 AddTarget({
-    "String": "\\*(\\d*)",
+    "String": "\\*(\\d+)",
     "Function": function(speaker, args)
     {
         local players = [];
@@ -405,7 +405,7 @@ AddTarget({
     }
 });
 AddTarget({
-    "String": "<(\\d*)",
+    "String": "<(\\d+)",
     "Function": function(speaker, args)
     {
         local players = [];
@@ -418,7 +418,7 @@ AddTarget({
     }
 });
 AddTarget({
-    "String": "id=(\\d*)",
+    "String": "id=(\\d+)",
     "Function": function(speaker, args)
     {
         for (local ent; ent = Entities.FindByClassname(ent, "player");)
@@ -430,11 +430,11 @@ AddTarget({
     }
 });
 AddTarget({
-    "String": "uid=(\\d*)",
-    "Function": "id=(\\d*)"
+    "String": "uid=(\\d+)",
+    "Function": "id=(\\d+)"
 });
 AddTarget({
-    "String": "pw:(.*)",
+    "String": "pw:(.+)",
     "Function": function(speaker, args)
     {
         local entities = [];
@@ -448,7 +448,7 @@ AddTarget({
     "Type": TARGET_WEAPON
 });
 AddTarget({
-    "String": "pw:(\\d*):(.*)",
+    "String": "pw(\\d+):(.+)",
     "Function": function(speaker, args)
     {
         local entities = [];
@@ -473,7 +473,7 @@ AddTarget({
     "Type": TARGET_OTHER
 });
 AddTarget({
-    "String": "e:(.*)",
+    "String": "e:(.+)",
     "Function": function(speaker, args)
     {
         for (local ent; ent = Entities.FindByClassname(ent, args[0]);)
@@ -483,7 +483,7 @@ AddTarget({
     "Type": TARGET_OTHER
 });
 AddTarget({
-    "String": "es:(.*)",
+    "String": "es:(.+)",
     "Function": function(speaker, args)
     {
         local entities = [];
@@ -1794,7 +1794,10 @@ AddCommand({
                     break;
                 case "instance":
                     for (local i = 0; i < size; i++)
-                        data += format("%s%d", data != "" ? ", " : "", NetProps.GetPropEntityArray(target, args[1], i).entindex());
+                    {
+                        local ent = NetProps.GetPropEntityArray(target, args[1], i);
+                        data += format("%s%d", data != "" ? ", " : "", ent ? ent.entindex() : -1);
+                    }
                     break;
                 }
                 splitClientPrint(speaker, 3, STATUS + format("  %s (%s, %d) \x01:  %s", args[1], type, size, data));
@@ -2307,7 +2310,7 @@ AddCommand({
     {
         local i = 0;
         foreach (target in GetTargets(speaker, args[0], TARGET_PLAYER | TARGET_WEAPON | TARGET_OTHER))
-            splitClientPrint(speaker, 3, STATUS + format("  %i \x01:  %s", i++, target.GetClassname()));
+            splitClientPrint(speaker, 3, STATUS + format("  %i (%i) \x01:  %s", i++, target.entindex(), target.GetClassname()));
     }
 });
 
